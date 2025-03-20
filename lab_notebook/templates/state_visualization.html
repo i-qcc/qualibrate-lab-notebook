@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>State Visualization - {{ backend_name }}</title>
+    <title>State Parameter Visualization</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
@@ -29,9 +29,6 @@
             width: 100%;
             height: 600px;
         }
-        .search-box {
-            margin-bottom: 1rem;
-        }
     </style>
 </head>
 <body class="bg-light">
@@ -51,34 +48,32 @@
                         <a href="{{ url_for('index') }}" class="btn btn-outline-secondary back-button">
                             <i class="fas fa-arrow-left me-2"></i>Back to Backend Selection
                         </a>
-                        <h2 class="d-inline-block ms-3">State Visualization - {{ backend_name }}</h2>
+                        <h2 class="d-inline-block ms-3">State Parameter Visualization</h2>
                     </div>
                 </div>
             </div>
         </div>
 
         <div class="filter-section">
-            <div class="search-box">
-                <label for="searchInput" class="form-label">Search State Parameters</label>
-                <input type="text" class="form-control" id="searchInput" placeholder="Type to filter parameters...">
-            </div>
             <div class="row g-3">
                 <div class="col-md-4">
-                    <label for="stateKey" class="form-label">State Parameter</label>
-                    <select class="form-select" id="stateKey">
-                        <option value="">Select a parameter...</option>
-                        {% for key in state_keys %}
-                        <option value="{{ key }}">{{ key }}</option>
+                    <label for="backendSelect" class="form-label">Quantum Computer Backend</label>
+                    <select class="form-select" id="backendSelect">
+                        <option value="">Select a backend...</option>
+                        {% for backend in backend_names %}
+                        <option value="{{ backend }}">{{ backend }}</option>
                         {% endfor %}
                     </select>
                 </div>
                 <div class="col-md-4">
-                    <label for="dateFrom" class="form-label">Date From</label>
-                    <input type="date" class="form-control" id="dateFrom">
+                    <label for="searchInput" class="form-label">Search State Parameters</label>
+                    <input type="text" class="form-control" id="searchInput" placeholder="Type to filter parameters...">
                 </div>
                 <div class="col-md-4">
-                    <label for="dateTo" class="form-label">Date To</label>
-                    <input type="date" class="form-control" id="dateTo">
+                    <label for="stateKey" class="form-label">State Parameter</label>
+                    <select class="form-select" id="stateKey" disabled>
+                        <option value="">Select a parameter...</option>
+                    </select>
                 </div>
             </div>
         </div>
@@ -90,17 +85,18 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-        const stateKey = document.getElementById('stateKey');
-        const dateFrom = document.getElementById('dateFrom');
-        const dateTo = document.getElementById('dateTo');
-        const plotDiv = document.getElementById('statePlot');
+        const backendSelect = document.getElementById('backendSelect');
         const searchInput = document.getElementById('searchInput');
-        let allStateKeys = Array.from(stateKey.options).map(opt => opt.value);
+        const stateKey = document.getElementById('stateKey');
+        const plotDiv = document.getElementById('statePlot');
 
-        function updateStateKeyOptions(filterText) {
+        function updateStateKeyOptions(backend, filterText = '') {
             stateKey.innerHTML = '<option value="">Select a parameter...</option>';
+            stateKey.disabled = true;
             
-            fetch(`/api/filter_state_keys/{{ backend_name }}?filter=${encodeURIComponent(filterText)}`)
+            if (!backend) return;
+            
+            fetch(`/api/filter_state_keys/${encodeURIComponent(backend)}?filter=${encodeURIComponent(filterText)}`)
                 .then(response => response.json())
                 .then(keys => {
                     keys.forEach(key => {
@@ -109,21 +105,24 @@
                         option.textContent = key;
                         stateKey.appendChild(option);
                     });
+                    stateKey.disabled = false;
                 })
-                .catch(error => console.error('Error filtering state keys:', error));
+                .catch(error => {
+                    console.error('Error fetching state keys:', error);
+                    stateKey.disabled = false;
+                });
         }
 
         function updatePlot() {
+            const backend = backendSelect.value;
             const key = stateKey.value;
-            const fromDate = dateFrom.value;
-            const toDate = dateTo.value;
 
-            if (!key) {
-                plotDiv.innerHTML = '<div class="text-center text-muted">Select a state parameter to view its changes over time</div>';
+            if (!backend || !key) {
+                plotDiv.innerHTML = '<div class="text-center text-muted">Select a backend and state parameter to view changes over time</div>';
                 return;
             }
 
-            fetch(`/api/state_data/{{ backend_name }}?key=${encodeURIComponent(key)}&from_date=${fromDate}&to_date=${toDate}`)
+            fetch(`/api/state_data/${encodeURIComponent(backend)}?key=${encodeURIComponent(key)}`)
                 .then(response => {
                     if (!response.ok) {
                         throw new Error(`HTTP error! status: ${response.status}`);
@@ -141,26 +140,9 @@
                         return;
                     }
 
-                    // Ensure values are numbers
-                    const values = data.values.map(v => {
-                        const num = parseFloat(v);
-                        return isNaN(num) ? null : num;
-                    });
-
-                    // Filter out any null values
-                    const validData = values.map((v, i) => ({
-                        timestamp: data.timestamps[i],
-                        value: v
-                    })).filter(d => d.value !== null);
-
-                    if (validData.length === 0) {
-                        plotDiv.innerHTML = '<div class="text-center text-muted">No valid numeric data available for plotting</div>';
-                        return;
-                    }
-
                     const trace = {
-                        x: validData.map(d => d.timestamp),
-                        y: validData.map(d => d.value),
+                        x: data.timestamps,
+                        y: data.values,
                         type: 'scatter',
                         mode: 'lines+markers',
                         name: key,
@@ -185,7 +167,7 @@
                         showlegend: true,
                         height: 600,
                         margin: {
-                            b: 100  // Add bottom margin for rotated x-axis labels
+                            b: 100
                         }
                     };
 
@@ -207,13 +189,15 @@
         searchInput.addEventListener('input', (e) => {
             clearTimeout(searchTimeout);
             searchTimeout = setTimeout(() => {
-                updateStateKeyOptions(e.target.value);
+                updateStateKeyOptions(backendSelect.value, e.target.value);
             }, 300);
         });
 
+        backendSelect.addEventListener('change', () => {
+            updateStateKeyOptions(backendSelect.value);
+        });
+
         stateKey.addEventListener('change', updatePlot);
-        dateFrom.addEventListener('change', updatePlot);
-        dateTo.addEventListener('change', updatePlot);
     </script>
 </body>
 </html> 

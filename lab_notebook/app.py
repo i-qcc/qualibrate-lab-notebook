@@ -472,31 +472,88 @@ def backend_view(backend_name):
                          backend_name=backend_name,
                          LAB_DATA_PATH=LAB_DATA_PATH)
 
-@app.route('/state_visualization/<backend_name>')
-def state_visualization(backend_name):
-    # Get available state keys (only qubits and qubit_pairs)
-    state_keys = get_state_keys()
+@app.route('/state_visualization')
+def state_visualization():
+    # Get all available backend names
+    experiments = get_experiment_data()
+    backend_names = sorted(set(exp['quantum_computer_backend'] for exp in experiments))
     
     return render_template('state_visualization.html',
-                         backend_name=backend_name,
-                         state_keys=state_keys)
+                         backend_names=backend_names)
 
 @app.route('/api/state_data/<backend_name>')
 def get_state_data_api(backend_name):
     key = request.args.get('key')
-    from_date = request.args.get('from_date')
-    to_date = request.args.get('to_date')
     
     if not key:
         return jsonify({"error": "No key specified"})
     
-    return jsonify(get_state_data(backend_name, key, from_date, to_date))
+    try:
+        # Get all experiments for this backend
+        experiments = get_experiment_data()
+        backend_experiments = [exp for exp in experiments if exp['quantum_computer_backend'] == backend_name]
+        
+        # Collect all state changes for this key
+        changes = []
+        for exp in backend_experiments:
+            for change in exp.get('state_changes', []):
+                if change.startswith(key + ' : '):
+                    # Parse the change: "key : old_value -> new_value"
+                    parts = change.split(' : ')[1].split(' -> ')
+                    if len(parts) == 2:
+                        try:
+                            new_value = float(parts[1])
+                            changes.append((exp['timestamp'], new_value))
+                        except ValueError:
+                            continue
+        
+        if not changes:
+            return jsonify({
+                "timestamps": [],
+                "values": [],
+                "error": "No data available for the specified parameters"
+            })
+        
+        # Sort changes by timestamp
+        changes.sort(key=lambda x: x[0])
+        timestamps, values = zip(*changes)
+        
+        # Convert timestamps to ISO format
+        timestamps = [datetime.fromtimestamp(ts).isoformat() for ts in timestamps]
+        
+        return jsonify({
+            "timestamps": timestamps,
+            "values": list(values),
+            "error": None
+        })
+        
+    except Exception as e:
+        print(f"Error in get_state_data_api: {str(e)}")
+        return jsonify({
+            "timestamps": [],
+            "values": [],
+            "error": f"Error processing data: {str(e)}"
+        })
 
 @app.route('/api/filter_state_keys/<backend_name>')
 def filter_state_keys(backend_name):
-    filter_text = request.args.get('filter', '')
-    keys = get_state_keys()
-    return jsonify(keys)
+    filter_text = request.args.get('filter', '').lower()
+    
+    # Get all experiments for this backend
+    experiments = get_experiment_data()
+    backend_experiments = [exp for exp in experiments if exp['quantum_computer_backend'] == backend_name]
+    
+    # Collect all unique state keys
+    keys = set()
+    for exp in backend_experiments:
+        for change in exp.get('state_changes', []):
+            if ' : ' in change:
+                key = change.split(' : ')[0]
+                if key.startswith(('qubits.', 'qubit_pairs.')):
+                    if not filter_text or filter_text in key.lower():
+                        keys.add(key)
+    
+    return jsonify(sorted(list(keys)))
 
 @app.route('/api/refresh_log')
 def refresh_log():

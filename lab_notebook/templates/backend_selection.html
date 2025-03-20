@@ -20,6 +20,10 @@
             padding-bottom: 0.5rem;
             border-bottom: 2px solid #dee2e6;
         }
+        .state-viz-section {
+            text-align: center;
+            margin: 2rem 0;
+        }
     </style>
 </head>
 <body class="bg-light">
@@ -61,28 +65,11 @@
             </div>
         </div>
 
-        <h2 class="section-title">State Visualization</h2>
-        
-        <div class="row">
-            <div class="col-12">
-                <h3 class="mb-3">State Parameter Tracking</h3>
-                <div class="row">
-                    {% for backend in backend_names %}
-                    <div class="col-md-4 mb-4">
-                        <a href="{{ url_for('state_visualization', backend_name=backend) }}" class="text-decoration-none">
-                            <div class="card backend-card">
-                                <div class="card-body">
-                                    <h5 class="card-title">
-                                        <i class="fas fa-chart-line me-2"></i>{{ backend }}
-                                    </h5>
-                                    <p class="card-text text-muted">Track state parameters over time</p>
-                                </div>
-                            </div>
-                        </a>
-                    </div>
-                    {% endfor %}
-                </div>
-            </div>
+        <div class="state-viz-section">
+            <h3 class="mb-4">State Visualization</h3>
+            <a href="{{ url_for('state_visualization') }}" class="btn btn-success btn-lg">
+                <i class="fas fa-chart-line me-2"></i>View State Parameters
+            </a>
         </div>
     </div>
 
