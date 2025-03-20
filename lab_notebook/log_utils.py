@@ -136,7 +136,7 @@ def log_state_changes(log_file: str = "changes_log.yml"):
 if __name__ == "__main__":
     
     log_file = os.path.join(os.path.dirname(__file__), "changes_log.yml")
-    # log_state_changes(log_file=log_file)
+    log_state_changes(log_file=log_file)
     
-    analyzer = ChangeAnalyzer(log_file, backend="qc_qwtune")
-    analyzer.plot_changes("qubits.qA5.T2ramsey") # , time_frame=(datetime.datetime(2025, 3, 5), datetime.datetime(2025, 3, 7)))
+    # analyzer = ChangeAnalyzer(log_file, backend="qc_qwtune")
+    # analyzer.plot_changes("qubits.qA5.T2ramsey") # , time_frame=(datetime.datetime(2025, 3, 5), datetime.datetime(2025, 3, 7)))

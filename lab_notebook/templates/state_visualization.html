@@ -124,37 +124,80 @@
             }
 
             fetch(`/api/state_data/{{ backend_name }}?key=${encodeURIComponent(key)}&from_date=${fromDate}&to_date=${toDate}`)
-                .then(response => response.json())
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
                 .then(data => {
                     if (data.error) {
                         plotDiv.innerHTML = `<div class="text-center text-danger">${data.error}</div>`;
                         return;
                     }
 
+                    if (!data.timestamps || !data.values || data.timestamps.length === 0) {
+                        plotDiv.innerHTML = '<div class="text-center text-muted">No data available for the selected parameters</div>';
+                        return;
+                    }
+
+                    // Ensure values are numbers
+                    const values = data.values.map(v => {
+                        const num = parseFloat(v);
+                        return isNaN(num) ? null : num;
+                    });
+
+                    // Filter out any null values
+                    const validData = values.map((v, i) => ({
+                        timestamp: data.timestamps[i],
+                        value: v
+                    })).filter(d => d.value !== null);
+
+                    if (validData.length === 0) {
+                        plotDiv.innerHTML = '<div class="text-center text-muted">No valid numeric data available for plotting</div>';
+                        return;
+                    }
+
                     const trace = {
-                        x: data.timestamps,
-                        y: data.values,
+                        x: validData.map(d => d.timestamp),
+                        y: validData.map(d => d.value),
                         type: 'scatter',
                         mode: 'lines+markers',
-                        name: key
+                        name: key,
+                        line: {
+                            width: 2
+                        },
+                        marker: {
+                            size: 6
+                        }
                     };
 
                     const layout = {
                         title: `State Parameter: ${key}`,
                         xaxis: {
                             title: 'Time',
-                            tickformat: '%Y-%m-%d %H:%M:%S'
+                            tickformat: '%Y-%m-%d %H:%M:%S',
+                            tickangle: 45
                         },
                         yaxis: {
                             title: 'Value'
                         },
                         showlegend: true,
-                        height: 600
+                        height: 600,
+                        margin: {
+                            b: 100  // Add bottom margin for rotated x-axis labels
+                        }
                     };
 
-                    Plotly.newPlot('statePlot', [trace], layout);
+                    const config = {
+                        responsive: true,
+                        displayModeBar: false
+                    };
+
+                    Plotly.newPlot('statePlot', [trace], layout, config);
                 })
                 .catch(error => {
+                    console.error('Error:', error);
                     plotDiv.innerHTML = `<div class="text-center text-danger">Error loading data: ${error.message}</div>`;
                 });
         }

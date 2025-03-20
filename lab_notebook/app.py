@@ -7,7 +7,7 @@ from collections import defaultdict
 import glob
 import ast
 import argparse
-from .log_utils import ChangeAnalyzer, log_state_changes
+from lab_notebook.log_utils import ChangeAnalyzer, log_state_changes
 import numpy as np
 from functools import lru_cache
 import time
@@ -98,53 +98,129 @@ def update_state_log_incremental():
                 except (json.JSONDecodeError, ValueError, TypeError):
                     continue
 
-def get_state_keys(backend_name, filter_text=None):
-    """Get all unique state keys from the log file, filtered by prefix and optional text"""
-    if not os.path.exists(STATE_LOG_FILE):
-        return []
-    
+def get_state_keys():
+    """Get all unique state parameter keys from the state log"""
     keys = set()
-    with open(STATE_LOG_FILE, 'r') as f:
-        for line in f:
-            if line.startswith(f"{backend_name} -"):
-                parts = line.split(" - ")
-                if len(parts) == 2:
-                    key = parts[1].split(" : ")[0]
+    log_file = os.path.join(os.path.dirname(__file__), "state_log.yml")
+    
+    if not os.path.exists(log_file):
+        return []
+        
+    try:
+        with open(log_file, 'r') as f:
+            for line in f:
+                # Extract the key from the line format: "key : old_value -> new_value"
+                parts = line.strip().split(' : ')
+                if len(parts) >= 1:
+                    key = parts[0]
                     # Only include keys that start with qubits or qubit_pairs
                     if key.startswith(('qubits.', 'qubit_pairs.')):
-                        # Apply text filter if provided
-                        if filter_text is None or filter_text.lower() in key.lower():
-                            keys.add(key)
+                        keys.add(key)
+    except Exception as e:
+        print(f"Warning: Could not read state log file: {e}")
     
     return sorted(list(keys))
 
 def get_state_data(backend_name, key, from_date=None, to_date=None):
     """Get state data for a specific key and time range"""
     if not os.path.exists(STATE_LOG_FILE):
-        return {"error": "No state data available"}
+        return {
+            "timestamps": [],
+            "values": [],
+            "error": "No state data available"
+        }
     
-    analyzer = ChangeAnalyzer(STATE_LOG_FILE, backend_name)
-    timestamps, values = analyzer.read_changes(key)
-    
-    if not timestamps:
-        return {"error": "No data available for the specified parameters"}
-    
-    # Convert timestamps to datetime objects
-    timestamps = [datetime.fromtimestamp(ts) for ts in timestamps]
-    
-    # Filter by date range if specified
-    if from_date:
-        from_date = parser.parse(from_date)
-        timestamps, values = zip(*[(t, v) for t, v in zip(timestamps, values) if t >= from_date])
-    
-    if to_date:
-        to_date = parser.parse(to_date)
-        timestamps, values = zip(*[(t, v) for t, v in zip(timestamps, values) if t <= to_date])
-    
-    return {
-        "timestamps": [t.isoformat() for t in timestamps],
-        "values": values
-    }
+    try:
+        # Read all changes from the state log
+        changes = []
+        with open(STATE_LOG_FILE, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                    
+                # Parse the line format: "key : old_value -> new_value"
+                parts = line.split(' : ')
+                if len(parts) != 2:
+                    continue
+                    
+                change_key, values = parts
+                if change_key != key:
+                    continue
+                    
+                # Parse the values
+                value_parts = values.split(' -> ')
+                if len(value_parts) != 2:
+                    continue
+                    
+                old_value, new_value = value_parts
+                
+                # Try to convert the new value to float
+                try:
+                    new_value = float(new_value)
+                except ValueError:
+                    continue
+                
+                # Get the timestamp from the experiment data
+                experiments = get_experiment_data()
+                for exp in experiments:
+                    if any(key in change for change in exp.get('state_changes', [])):
+                        timestamp = exp.get('timestamp', 0)
+                        changes.append((timestamp, new_value))
+                        break
+        
+        if not changes:
+            return {
+                "timestamps": [],
+                "values": [],
+                "error": "No data available for the specified parameters"
+            }
+        
+        # Sort changes by timestamp
+        changes.sort(key=lambda x: x[0])
+        timestamps, values = zip(*changes)
+        
+        # Convert timestamps to datetime objects
+        timestamps = [datetime.fromtimestamp(ts) for ts in timestamps]
+        
+        # Filter by date range if specified
+        if from_date:
+            from_date = parser.parse(from_date)
+            filtered_data = [(t, v) for t, v in zip(timestamps, values) if t >= from_date]
+            if filtered_data:
+                timestamps, values = zip(*filtered_data)
+            else:
+                return {
+                    "timestamps": [],
+                    "values": [],
+                    "error": "No data available in the specified date range"
+                }
+        
+        if to_date:
+            to_date = parser.parse(to_date)
+            filtered_data = [(t, v) for t, v in zip(timestamps, values) if t <= to_date]
+            if filtered_data:
+                timestamps, values = zip(*filtered_data)
+            else:
+                return {
+                    "timestamps": [],
+                    "values": [],
+                    "error": "No data available in the specified date range"
+                }
+        
+        return {
+            "timestamps": [t.isoformat() for t in timestamps],
+            "values": list(values),
+            "error": None
+        }
+        
+    except Exception as e:
+        print(f"Error in get_state_data: {str(e)}")
+        return {
+            "timestamps": [],
+            "values": [],
+            "error": f"Error processing data: {str(e)}"
+        }
 
 def dict_to_hashable(d):
     """Convert a dictionary to a hashable format"""
@@ -173,6 +249,16 @@ def hashable_to_dict(h):
             return h
     return h
 
+def format_value(value):
+    """Format a value for display"""
+    if isinstance(value, (int, float)):
+        return str(value)  # Don't format floats, keep full precision
+    elif isinstance(value, list):
+        return f"[{', '.join(format_value(v) for v in value)}]"
+    elif isinstance(value, dict):
+        return "{...}"  # For nested dictionaries, just show a placeholder
+    return str(value)
+
 @lru_cache(maxsize=32)
 def get_state_changes_cached(current_state_hash, previous_state_hash):
     """Cached version of state changes comparison"""
@@ -185,8 +271,19 @@ def get_state_changes_cached(current_state_hash, previous_state_hash):
                 previous_val = previous.get(key)
                 new_path = f"{path}.{key}" if path else key
                 compare_states(current_val, previous_val, new_path)
+        elif isinstance(current, list) and isinstance(previous, list):
+            # For lists, compare each element individually
+            for i, (curr_item, prev_item) in enumerate(zip(current, previous)):
+                new_path = f"{path}[{i}]" if path else f"[{i}]"
+                compare_states(curr_item, prev_item, new_path)
+            # Handle cases where lists have different lengths
+            if len(current) != len(previous):
+                changes.append(f"{path} : {format_value(previous)} -> {format_value(current)}")
         elif current != previous:
-            changes.append(f"{path} : {previous} -> {current}")
+            # Format the change in the exact specified format
+            prev_val = format_value(previous)
+            curr_val = format_value(current)
+            changes.append(f"{path} : {prev_val} -> {curr_val}")
     
     # Convert hashable format back to dictionaries for comparison
     current_state = hashable_to_dict(current_state_hash)
@@ -195,13 +292,44 @@ def get_state_changes_cached(current_state_hash, previous_state_hash):
     compare_states(current_state, previous_state)
     return changes
 
-def get_state_changes(current_state, previous_state):
-    """Compare two state dictionaries and return a list of changes in the specified format"""
-    # Convert dictionaries to hashable format
-    current_state_hash = dict_to_hashable(current_state)
-    previous_state_hash = dict_to_hashable(previous_state)
+def get_state_changes(node_data):
+    """Get state changes from patches in node.json"""
+    changes = []
     
-    return get_state_changes_cached(current_state_hash, previous_state_hash)
+    # Helper function to format path from JSON pointer to dot notation
+    def format_path(path):
+        # Remove leading slash and convert slashes to dots
+        return path.lstrip('/').replace('/', '.')
+    
+    # Helper function to format value
+    def format_value(value):
+        if isinstance(value, (int, float)):
+            return str(value)
+        return str(value)
+    
+    # Read patches from node.json
+    if 'patches' not in node_data:
+        return changes
+        
+    for patch in node_data['patches']:
+        if patch.get('op') == 'replace':
+            path = format_path(patch['path'])
+            old_value = format_value(patch.get('old', 'None'))
+            new_value = format_value(patch['value'])
+            
+            # Format the change as specified
+            change = f"{path} : {old_value} -> {new_value}"
+            changes.append(change)
+            
+            # Log the change to state_log.yml
+            try:
+                log_file = os.path.join(os.path.dirname(__file__), "state_log.yml")
+                with open(log_file, 'a') as f:
+                    f.write(f"{change}\n")
+            except Exception as e:
+                print(f"Warning: Could not log state change: {e}")
+    
+    return changes
 
 def clear_experiment_cache():
     """Clear the experiment data cache"""
@@ -215,9 +343,9 @@ def get_experiment_data(force_refresh=False):
     if not force_refresh and _experiment_cache['data'] is not None and _experiment_cache['is_valid']:
         return _experiment_cache['data']
     
+    # First, collect all experiments with their metadata
     experiments = []
-    previous_state = None
-    previous_backend = None
+    skipped_count = 0
     
     # Get all folders in the lab data path
     all_folders = sorted([f for f in os.listdir(LAB_DATA_PATH) 
@@ -225,98 +353,102 @@ def get_experiment_data(force_refresh=False):
     
     for folder in all_folders:
         folder_path = os.path.join(LAB_DATA_PATH, folder)
-        
-        # Get all date folders
+    
+    # Get all date folders
         date_folders = sorted([f for f in os.listdir(folder_path) 
                              if os.path.isdir(os.path.join(folder_path, f)) 
-                             and f.startswith('2025')])
+                         and f.startswith('2025')])
+    
+    for date_folder in date_folders:
+        date_path = os.path.join(folder_path, date_folder)
         
-        for date_folder in date_folders:
-            date_path = os.path.join(folder_path, date_folder)
+        # Get all experiment folders for this date
+        exp_folders = sorted([f for f in os.listdir(date_path) 
+                            if os.path.isdir(os.path.join(date_path, f))])
+        
+        for exp_folder in exp_folders:
+            exp_path = os.path.join(date_path, exp_folder)
+                
+                # Get all PNG files
+            plot_files = []
+            for f in os.listdir(exp_path):
+                if f.endswith('.png'):
+                    plot_files.append(os.path.join(exp_path, f))
             
-            # Get all experiment folders for this date
-            exp_folders = sorted([f for f in os.listdir(date_path) 
-                                if os.path.isdir(os.path.join(date_path, f))])
+            # Only skip if there are no PNG files
+            if not plot_files:
+                print(f"Warning: Skipping experiment {exp_path} - No PNG files found")
+                skipped_count += 1
+                continue
             
-            for exp_folder in exp_folders:
-                exp_path = os.path.join(date_path, exp_folder)
-                
-                # Get all figure files
-                plot_files = []
-                for f in os.listdir(exp_path):
-                    if f.startswith('figure') and f.endswith('.png'):
-                        plot_files.append(os.path.join(exp_path, f))
-                
-                # Only skip if there are no plot files
-                if not plot_files:
-                    continue
-                
-                # Sort plot files to put figure_fidelity.png or figure_fidelities.png first if they exist
-                plot_files.sort(key=lambda x: (
-                    not (x.endswith('figure_fidelity.png') or x.endswith('figure_fidelities.png')),
-                    x
-                ))
-                
-                # Get experiment metadata
-                node_file = os.path.join(exp_path, 'node.json')
-                wiring_file = os.path.join(exp_path, 'quam_state', 'wiring.json')
-                state_file = os.path.join(exp_path, 'quam_state', 'state.json')
-                
-                # Initialize experiment data
-                experiment = {
-                    'folder': exp_folder,
-                    'path': exp_path,
+            # Sort plot files to put fidelity plots first if they exist
+            plot_files.sort(key=lambda x: (
+                not ('fidelity' in os.path.basename(x).lower()),
+                x
+            ))
+            
+            # Get experiment metadata
+            node_file = os.path.join(exp_path, 'node.json')
+            wiring_file = os.path.join(exp_path, 'quam_state', 'wiring.json')
+            state_file = os.path.join(exp_path, 'quam_state', 'state.json')
+            
+                # Initialize experiment data with default backend
+            experiment = {
+                'folder': exp_folder,
+                'path': exp_path,
                     'plot_files': plot_files,
                     'lab_folder': folder,
-                    'state_changes': []
+                    'state_changes': [],
+                    'quantum_computer_backend': 'unspecified_backend_name',  # Default value
+                    'state_file': state_file  # Store state file path for later use
                 }
                 
-                # Load metadata if available
-                if os.path.exists(node_file):
-                    try:
-                        with open(node_file, 'r') as f:
-                            node_data = json.load(f)
-                            if 'created_at' in node_data:
-                                try:
-                                    experiment['date'] = parser.parse(node_data['created_at']).isoformat()
-                                except (ValueError, TypeError):
-                                    experiment['date'] = parser.parse(date_folder).isoformat()
-                            else:
-                                experiment['date'] = parser.parse(date_folder).isoformat()
-                    except (json.JSONDecodeError, IOError):
-                        experiment['date'] = parser.parse(date_folder).isoformat()
-                else:
-                    experiment['date'] = parser.parse(date_folder).isoformat()
+            # Load metadata and extract timestamp
+            if not os.path.exists(node_file):
+                print(f"Warning: Skipping experiment {exp_path} - No node.json found")
+                skipped_count += 1
+                continue
                 
-                # Get quantum computer backend
-                if os.path.exists(wiring_file):
-                    try:
-                        with open(wiring_file, 'r') as f:
-                            wiring_data = json.load(f)
-                            experiment['quantum_computer_backend'] = wiring_data.get('network', {}).get('quantum_computer_backend', 'unspecified_backend_name')
-                    except (json.JSONDecodeError, KeyError, IOError):
-                        experiment['quantum_computer_backend'] = 'unspecified_backend_name'
-                else:
-                    experiment['quantum_computer_backend'] = 'unspecified_backend_name'
+            try:
+                with open(node_file, 'r') as f:
+                    node_data = json.load(f)
+                    if 'created_at' not in node_data:
+                        print(f"Warning: Skipping experiment {exp_path} - No created_at field in node.json")
+                        skipped_count += 1
+                        continue
+                        
+                    # Parse the timestamp in the format "2025-03-18T12:42:29+02:00"
+                    created_at = parser.parse(node_data['created_at'])
+                    experiment['date'] = created_at.isoformat()
+                    experiment['timestamp'] = int(created_at.timestamp())
+                    
+                    # Get state changes from patches
+                    if 'patches' in node_data:
+                        experiment['state_changes'] = get_state_changes(node_data)
+            except (json.JSONDecodeError, ValueError, TypeError) as e:
+                print(f"Warning: Skipping experiment {exp_path} - Invalid timestamp format: {str(e)}")
+                skipped_count += 1
+                continue
                 
-                # Track state changes
-                if os.path.exists(state_file):
-                    try:
-                        with open(state_file, 'r') as f:
-                            current_state = json.load(f)
-                            if previous_state is not None and previous_backend == experiment['quantum_computer_backend']:
-                                changes = get_state_changes(current_state, previous_state)
-                                if changes:
-                                    experiment['state_changes'] = changes
-                            previous_state = current_state
-                            previous_backend = experiment['quantum_computer_backend']
-                    except (json.JSONDecodeError, IOError):
-                        pass
-                
-                experiments.append(experiment)
+            # Get quantum computer backend
+            if os.path.exists(wiring_file):
+                try:
+                    with open(wiring_file, 'r') as f:
+                        wiring_data = json.load(f)
+                        experiment['quantum_computer_backend'] = wiring_data.get('network', {}).get('quantum_computer_backend', 'unspecified_backend_name')
+                except (json.JSONDecodeError, KeyError, IOError):
+                    print(f"Warning: Using default backend name for experiment {exp_path} - Could not read wiring.json")
+            
+            experiments.append(experiment)
     
-    # Sort experiments by date
-    experiments.sort(key=lambda x: x['date'], reverse=True)
+    if skipped_count > 0:
+        print(f"Warning: {skipped_count} experiments were skipped due to missing or invalid data")
+    
+    # Sort experiments by timestamp in ascending order (oldest first)
+    experiments.sort(key=lambda x: x['timestamp'])
+    
+    # Sort experiments by timestamp in descending order (newest first) for display
+    experiments.sort(key=lambda x: x['timestamp'], reverse=True)
     
     # Update cache
     _experiment_cache['data'] = experiments
@@ -343,7 +475,7 @@ def backend_view(backend_name):
 @app.route('/state_visualization/<backend_name>')
 def state_visualization(backend_name):
     # Get available state keys (only qubits and qubit_pairs)
-    state_keys = get_state_keys(backend_name)
+    state_keys = get_state_keys()
     
     return render_template('state_visualization.html',
                          backend_name=backend_name,
@@ -363,7 +495,7 @@ def get_state_data_api(backend_name):
 @app.route('/api/filter_state_keys/<backend_name>')
 def filter_state_keys(backend_name):
     filter_text = request.args.get('filter', '')
-    keys = get_state_keys(backend_name, filter_text)
+    keys = get_state_keys()
     return jsonify(keys)
 
 @app.route('/api/refresh_log')
@@ -401,7 +533,7 @@ if __name__ == '__main__':
         print(f"Using lab data path: {LAB_DATA_PATH}")
         # Update state log when starting the application
         log_state_changes(STATE_LOG_FILE)
-        app.run(debug=True)
+        app.run(debug=True) 
     except ValueError as e:
         print(f"Error: {e}")
         exit(1) 
