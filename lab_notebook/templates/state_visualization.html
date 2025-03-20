@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>State Visualization - {{ backend_name }}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <style>
+        .back-button {
+            margin-bottom: 1rem;
+        }
+        .filter-section {
+            background-color: white;
+            padding: 1rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            margin-bottom: 2rem;
+        }
+        .plot-container {
+            background-color: white;
+            padding: 1rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            margin-top: 2rem;
+        }
+        #statePlot {
+            width: 100%;
+            height: 600px;
+        }
+        .search-box {
+            margin-bottom: 1rem;
+        }
+    </style>
+</head>
+<body class="bg-light">
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container">
+            <a class="navbar-brand" href="{{ url_for('index') }}">
+                <i class="fas fa-flask me-2"></i>Lab Notebook
+            </a>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <div class="row">
+            <div class="col-12">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <div>
+                        <a href="{{ url_for('index') }}" class="btn btn-outline-secondary back-button">
+                            <i class="fas fa-arrow-left me-2"></i>Back to Backend Selection
+                        </a>
+                        <h2 class="d-inline-block ms-3">State Visualization - {{ backend_name }}</h2>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="filter-section">
+            <div class="search-box">
+                <label for="searchInput" class="form-label">Search State Parameters</label>
+                <input type="text" class="form-control" id="searchInput" placeholder="Type to filter parameters...">
+            </div>
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <label for="stateKey" class="form-label">State Parameter</label>
+                    <select class="form-select" id="stateKey">
+                        <option value="">Select a parameter...</option>
+                        {% for key in state_keys %}
+                        <option value="{{ key }}">{{ key }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label for="dateFrom" class="form-label">Date From</label>
+                    <input type="date" class="form-control" id="dateFrom">
+                </div>
+                <div class="col-md-4">
+                    <label for="dateTo" class="form-label">Date To</label>
+                    <input type="date" class="form-control" id="dateTo">
+                </div>
+            </div>
+        </div>
+
+        <div class="plot-container">
+            <div id="statePlot"></div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        const stateKey = document.getElementById('stateKey');
+        const dateFrom = document.getElementById('dateFrom');
+        const dateTo = document.getElementById('dateTo');
+        const plotDiv = document.getElementById('statePlot');
+        const searchInput = document.getElementById('searchInput');
+        let allStateKeys = Array.from(stateKey.options).map(opt => opt.value);
+
+        function updateStateKeyOptions(filterText) {
+            stateKey.innerHTML = '<option value="">Select a parameter...</option>';
+            
+            fetch(`/api/filter_state_keys/{{ backend_name }}?filter=${encodeURIComponent(filterText)}`)
+                .then(response => response.json())
+                .then(keys => {
+                    keys.forEach(key => {
+                        const option = document.createElement('option');
+                        option.value = key;
+                        option.textContent = key;
+                        stateKey.appendChild(option);
+                    });
+                })
+                .catch(error => console.error('Error filtering state keys:', error));
+        }
+
+        function updatePlot() {
+            const key = stateKey.value;
+            const fromDate = dateFrom.value;
+            const toDate = dateTo.value;
+
+            if (!key) {
+                plotDiv.innerHTML = '<div class="text-center text-muted">Select a state parameter to view its changes over time</div>';
+                return;
+            }
+
+            fetch(`/api/state_data/{{ backend_name }}?key=${encodeURIComponent(key)}&from_date=${fromDate}&to_date=${toDate}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        plotDiv.innerHTML = `<div class="text-center text-danger">${data.error}</div>`;
+                        return;
+                    }
+
+                    const trace = {
+                        x: data.timestamps,
+                        y: data.values,
+                        type: 'scatter',
+                        mode: 'lines+markers',
+                        name: key
+                    };
+
+                    const layout = {
+                        title: `State Parameter: ${key}`,
+                        xaxis: {
+                            title: 'Time',
+                            tickformat: '%Y-%m-%d %H:%M:%S'
+                        },
+                        yaxis: {
+                            title: 'Value'
+                        },
+                        showlegend: true,
+                        height: 600
+                    };
+
+                    Plotly.newPlot('statePlot', [trace], layout);
+                })
+                .catch(error => {
+                    plotDiv.innerHTML = `<div class="text-center text-danger">Error loading data: ${error.message}</div>`;
+                });
+        }
+
+        // Add debounced search
+        let searchTimeout;
+        searchInput.addEventListener('input', (e) => {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => {
+                updateStateKeyOptions(e.target.value);
+            }, 300);
+        });
+
+        stateKey.addEventListener('change', updatePlot);
+        dateFrom.addEventListener('change', updatePlot);
+        dateTo.addEventListener('change', updatePlot);
+    </script>
+</body>
+</html> 
