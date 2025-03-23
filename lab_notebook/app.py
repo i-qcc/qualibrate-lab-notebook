@@ -580,10 +580,10 @@ def get_experiments():
     return jsonify(experiments)
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Run the Lab Notebook application')
-    parser.add_argument('--lab-path', type=str, default=DEFAULT_LAB_DATA_PATH,
+    arg_parser = argparse.ArgumentParser(description='Run the Lab Notebook application')
+    arg_parser.add_argument('--lab-path', type=str, default=DEFAULT_LAB_DATA_PATH,
                       help=f'Path to lab data directory (default: {DEFAULT_LAB_DATA_PATH})')
-    args = parser.parse_args()
+    args = arg_parser.parse_args()
     
     try:
         set_lab_data_path(args.lab_path)
