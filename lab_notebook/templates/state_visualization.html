@@ -6,6 +6,8 @@
     <title>State Parameter Visualization</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-select@1.14.0-beta3/dist/css/bootstrap-select.min.css" rel="stylesheet">
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
     <style>
         .back-button {
@@ -28,6 +30,14 @@
         #statePlot {
             width: 100%;
             height: 600px;
+        }
+        .bootstrap-select .dropdown-toggle {
+            background-color: #fff;
+            border: 1px solid #ced4da;
+            border-radius: 0.25rem;
+        }
+        .bootstrap-select .dropdown-menu {
+            max-height: 300px;
         }
     </style>
 </head>
@@ -71,9 +81,22 @@
                 </div>
                 <div class="col-md-4">
                     <label for="stateKey" class="form-label">State Parameter</label>
-                    <select class="form-select" id="stateKey" disabled>
-                        <option value="">Select a parameter...</option>
-                    </select>
+                    <div class="dropdown">
+                        <button class="form-select" type="button" id="stateKeyDropdown" data-bs-toggle="dropdown" aria-expanded="false" disabled>
+                            Select a parameter...
+                        </button>
+                        <ul class="dropdown-menu w-100" id="stateKeyList" style="max-height: 300px; overflow-y: auto;">
+                        </ul>
+                    </div>
+                </div>
+            </div>
+            <div class="row mt-3">
+                <div class="col-12">
+                    <div id="selectedParameters" class="d-none">
+                        <h5 class="mb-2">Selected Parameters</h5>
+                        <div id="selectedParametersList" class="d-flex flex-wrap gap-2">
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -87,12 +110,16 @@
     <script>
         const backendSelect = document.getElementById('backendSelect');
         const searchInput = document.getElementById('searchInput');
-        const stateKey = document.getElementById('stateKey');
+        const stateKeyDropdown = document.getElementById('stateKeyDropdown');
+        const stateKeyList = document.getElementById('stateKeyList');
         const plotDiv = document.getElementById('statePlot');
+        const selectedParametersDiv = document.getElementById('selectedParameters');
+        const selectedParametersList = document.getElementById('selectedParametersList');
+        let selectedParams = new Set();
 
         function updateStateKeyOptions(backend, filterText = '') {
-            stateKey.innerHTML = '<option value="">Select a parameter...</option>';
-            stateKey.disabled = true;
+            stateKeyList.innerHTML = '';
+            stateKeyDropdown.disabled = true;
             
             if (!backend) return;
             
@@ -100,62 +127,102 @@
                 .then(response => response.json())
                 .then(keys => {
                     keys.forEach(key => {
-                        const option = document.createElement('option');
-                        option.value = key;
-                        option.textContent = key;
-                        stateKey.appendChild(option);
+                        const li = document.createElement('li');
+                        li.innerHTML = `<a class="dropdown-item" href="#">${key}</a>`;
+                        li.addEventListener('click', (e) => {
+                            e.preventDefault();
+                            addParameter(key);
+                        });
+                        stateKeyList.appendChild(li);
                     });
-                    stateKey.disabled = false;
+                    stateKeyDropdown.disabled = false;
                 })
                 .catch(error => {
                     console.error('Error fetching state keys:', error);
-                    stateKey.disabled = false;
+                    stateKeyDropdown.disabled = false;
                 });
+        }
+
+        // Prevent dropdown from closing when clicking inside
+        stateKeyList.addEventListener('click', (e) => {
+            e.stopPropagation();
+        });
+
+        // Keep dropdown open after selection
+        stateKeyList.addEventListener('change', (e) => {
+            e.stopPropagation();
+        });
+
+        function addParameter(key) {
+            if (selectedParams.has(key)) return;
+            
+            selectedParams.add(key);
+            const paramElement = document.createElement('div');
+            paramElement.className = 'badge bg-primary d-flex align-items-center gap-2';
+            paramElement.innerHTML = `
+                ${key}
+                <button class="btn-close btn-close-white" aria-label="Remove"></button>
+            `;
+            
+            const removeButton = paramElement.querySelector('.btn-close');
+            removeButton.addEventListener('click', () => {
+                selectedParams.delete(key);
+                paramElement.remove();
+                if (selectedParams.size === 0) {
+                    selectedParametersDiv.classList.add('d-none');
+                }
+                updatePlot();
+            });
+            
+            selectedParametersList.appendChild(paramElement);
+            selectedParametersDiv.classList.remove('d-none');
+            updatePlot();
         }
 
         function updatePlot() {
             const backend = backendSelect.value;
-            const key = stateKey.value;
 
-            if (!backend || !key) {
-                plotDiv.innerHTML = '<div class="text-center text-muted">Select a backend and state parameter to view changes over time</div>';
+            if (!backend || selectedParams.size === 0) {
+                plotDiv.innerHTML = '<div class="text-center text-muted">Select a backend and at least one state parameter to view changes over time</div>';
                 return;
             }
 
-            fetch(`/api/state_data/${encodeURIComponent(backend)}?key=${encodeURIComponent(key)}`)
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error(`HTTP error! status: ${response.status}`);
-                    }
-                    return response.json();
-                })
-                .then(data => {
-                    if (data.error) {
-                        plotDiv.innerHTML = `<div class="text-center text-danger">${data.error}</div>`;
-                        return;
-                    }
+            // Fetch data for all selected parameters
+            const promises = Array.from(selectedParams).map(key =>
+                fetch(`/api/state_data/${encodeURIComponent(backend)}?key=${encodeURIComponent(key)}`)
+                    .then(response => response.json())
+            );
 
-                    if (!data.timestamps || !data.values || data.timestamps.length === 0) {
+            Promise.all(promises)
+                .then(results => {
+                    const traces = results.map((data, index) => {
+                        if (data.error || !data.timestamps || !data.values || data.timestamps.length === 0) {
+                            return null;
+                        }
+
+                        const key = Array.from(selectedParams)[index];
+                        return {
+                            x: data.timestamps,
+                            y: data.values,
+                            type: 'scatter',
+                            mode: 'lines+markers',
+                            name: key,
+                            line: {
+                                width: 2
+                            },
+                            marker: {
+                                size: 6
+                            }
+                        };
+                    }).filter(trace => trace !== null);
+
+                    if (traces.length === 0) {
                         plotDiv.innerHTML = '<div class="text-center text-muted">No data available for the selected parameters</div>';
                         return;
                     }
 
-                    const trace = {
-                        x: data.timestamps,
-                        y: data.values,
-                        type: 'scatter',
-                        mode: 'lines+markers',
-                        name: key,
-                        line: {
-                            width: 2
-                        },
-                        marker: {
-                            size: 6
-                        }
-                    };
-
                     const layout = {
-                        title: `State Parameter: ${key}`,
+                        title: 'State Parameters Over Time',
                         xaxis: {
                             title: 'Time',
                             tickformat: '%Y-%m-%d %H:%M:%S',
@@ -176,7 +243,7 @@
                         displayModeBar: false
                     };
 
-                    Plotly.newPlot('statePlot', [trace], layout, config);
+                    Plotly.newPlot('statePlot', traces, layout, config);
                 })
                 .catch(error => {
                     console.error('Error:', error);
@@ -195,9 +262,11 @@
 
         backendSelect.addEventListener('change', () => {
             updateStateKeyOptions(backendSelect.value);
+            selectedParams.clear();
+            selectedParametersList.innerHTML = '';
+            selectedParametersDiv.classList.add('d-none');
+            updatePlot();
         });
-
-        stateKey.addEventListener('change', updatePlot);
     </script>
 </body>
 </html> 
