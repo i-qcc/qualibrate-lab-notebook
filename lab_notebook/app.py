@@ -7,7 +7,7 @@ from collections import defaultdict
 import glob
 import ast
 import argparse
-from lab_notebook.log_utils import ChangeAnalyzer, log_state_changes
+from lab_notebook.log_utils import ChangeAnalyzer, get_sorted_experiments, log_state_changes
 import numpy as np
 from functools import lru_cache
 import time
@@ -53,50 +53,12 @@ def update_state_log_incremental():
     """Update the state log with only new experiments since last update"""
     latest_timestamp = get_latest_logged_timestamp()
     
-    # Get all folders in the lab data path
-    all_folders = sorted([f for f in os.listdir(LAB_DATA_PATH) 
-                         if os.path.isdir(os.path.join(LAB_DATA_PATH, f))])
+    experiments = get_sorted_experiments(LAB_DATA_PATH)
     
-    for folder in all_folders:
-        folder_path = os.path.join(LAB_DATA_PATH, folder)
+    new_experiments = [exp for exp in experiments if exp['timestamp'] > latest_timestamp]
+    
+    log_state_changes(STATE_LOG_FILE, experiments=new_experiments)
         
-        # Get all date folders
-        date_folders = sorted([f for f in os.listdir(folder_path) 
-                             if os.path.isdir(os.path.join(folder_path, f)) 
-                             and f.startswith('2025')])
-        
-        for date_folder in date_folders:
-            date_path = os.path.join(folder_path, date_folder)
-            
-            # Get all experiment folders for this date
-            exp_folders = sorted([f for f in os.listdir(date_path) 
-                                if os.path.isdir(os.path.join(date_path, f))])
-            
-            for exp_folder in exp_folders:
-                exp_path = os.path.join(date_path, exp_folder)
-                node_file = os.path.join(exp_path, 'node.json')
-                
-                if not os.path.exists(node_file):
-                    continue
-                    
-                try:
-                    with open(node_file, 'r') as f:
-                        node_data = json.load(f)
-                        if 'created_at' not in node_data:
-                            continue
-                        
-                        exp_timestamp = int(parser.parse(node_data['created_at']).timestamp())
-                        
-                        # Skip if this experiment is already in the log
-                        if exp_timestamp <= latest_timestamp:
-                            continue
-                        
-                        # This is a new experiment, update the log
-                        log_state_changes(STATE_LOG_FILE)
-                        return  # Exit after finding and logging the first new experiment
-                        
-                except (json.JSONDecodeError, ValueError, TypeError):
-                    continue
 
 def get_state_keys():
     """Get all unique state parameter keys from the state log"""
@@ -502,8 +464,14 @@ def get_state_data_api(backend_name):
                     parts = change.split(' : ')[1].split(' -> ')
                     if len(parts) == 2:
                         try:
-                            new_value = float(parts[1])
-                            changes.append((exp['timestamp'], new_value))
+                            new_value = parts[1]
+                            # For confusion matrix, keep the string representation
+                            if key.endswith('.confusion_matrix'):
+                                changes.append((exp['timestamp'], new_value))
+                            else:
+                                # For other values, convert to float
+                                new_value = float(new_value)
+                                changes.append((exp['timestamp'], new_value))
                         except ValueError:
                             continue
         
@@ -559,7 +527,7 @@ def filter_state_keys(backend_name):
 def refresh_log():
     """Endpoint to manually refresh the state log"""
     try:
-        log_state_changes(STATE_LOG_FILE)
+        update_state_log_incremental()
         # Force refresh of experiment data
         get_experiment_data(force_refresh=True)
         return jsonify({"status": "success", "message": "State log updated successfully"})
@@ -589,7 +557,7 @@ if __name__ == '__main__':
         set_lab_data_path(args.lab_path)
         print(f"Using lab data path: {LAB_DATA_PATH}")
         # Update state log when starting the application
-        log_state_changes(STATE_LOG_FILE)
+        update_state_log_incremental()
         app.run(debug=True) 
     except ValueError as e:
         print(f"Error: {e}")

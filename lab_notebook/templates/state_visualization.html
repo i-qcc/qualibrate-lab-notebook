@@ -190,33 +190,126 @@
             // Fetch data for all selected parameters
             const promises = Array.from(selectedParams).map(key =>
                 fetch(`/api/state_data/${encodeURIComponent(backend)}?key=${encodeURIComponent(key)}`)
-                    .then(response => response.json())
+                    .then(response => {
+                        console.log(`API Response for ${key}:`, response);
+                        return response.json();
+                    })
+                    .then(data => {
+                        console.log(`Data for ${key}:`, data);
+                        return data;
+                    })
+                    .catch(error => {
+                        console.error(`Error fetching data for ${key}:`, error);
+                        return null;
+                    })
             );
 
             Promise.all(promises)
                 .then(results => {
+                    console.log('All results:', results);
                     const traces = results.map((data, index) => {
+                        if (!data) {
+                            console.log(`No data for index ${index}`);
+                            return null;
+                        }
+
                         if (data.error || !data.timestamps || !data.values || data.timestamps.length === 0) {
+                            console.log(`Invalid data for index ${index}:`, data);
                             return null;
                         }
 
                         const key = Array.from(selectedParams)[index];
-                        return {
-                            x: data.timestamps,
-                            y: data.values,
-                            type: 'scatter',
-                            mode: 'lines+markers',
-                            name: key,
-                            line: {
-                                width: 2
-                            },
-                            marker: {
-                                size: 6
-                            }
-                        };
+                        const isConfusionMatrix = key.endsWith('.confusion_matrix');
+                        console.log('Processing key:', key, 'isConfusionMatrix:', isConfusionMatrix);
+                        console.log('Raw data:', data);
+
+                        if (isConfusionMatrix) {
+                            // Handle confusion matrix data
+                            const traces = [];
+                            const timestamps = [];
+                            const values00 = [];
+                            const values11 = [];
+                            
+                            data.values.forEach((value, i) => {
+                                try {
+                                    console.log('Processing value:', value);
+                                    // Parse the string representation of the 2x2 matrix
+                                    // Remove any whitespace and parse the string as JSON
+                                    const matrix = JSON.parse(value.replace(/\s+/g, ''));
+                                    console.log('Parsed matrix:', matrix);
+                                    
+                                    if (Array.isArray(matrix) && matrix.length === 2 && matrix[0].length === 2) {
+                                        timestamps.push(data.timestamps[i]);
+                                        values00.push(matrix[0][0]);
+                                        values11.push(matrix[1][1]);
+                                    } else {
+                                        console.error('Invalid matrix format:', matrix);
+                                    }
+                                } catch (e) {
+                                    console.error('Error parsing confusion matrix:', e);
+                                    console.error('Problematic value:', value);
+                                }
+                            });
+
+                            // Add 00 fidelity trace
+                            traces.push({
+                                x: timestamps,
+                                y: values00,
+                                type: 'scatter',
+                                mode: 'lines+markers',
+                                name: `${key} (00 fidelity)`,
+                                line: {
+                                    width: 2
+                                },
+                                marker: {
+                                    size: 6
+                                }
+                            });
+
+                            // Add 11 fidelity trace
+                            traces.push({
+                                x: timestamps,
+                                y: values11,
+                                type: 'scatter',
+                                mode: 'lines+markers',
+                                name: `${key} (11 fidelity)`,
+                                line: {
+                                    width: 2
+                                },
+                                marker: {
+                                    size: 6
+                                }
+                            });
+
+                            console.log('Generated traces for confusion matrix:', traces);
+                            return traces;
+                        } else {
+                            // Handle regular parameters
+                            return {
+                                x: data.timestamps,
+                                y: data.values,
+                                type: 'scatter',
+                                mode: 'lines+markers',
+                                name: key,
+                                line: {
+                                    width: 2
+                                },
+                                marker: {
+                                    size: 6
+                                }
+                            };
+                        }
                     }).filter(trace => trace !== null);
 
-                    if (traces.length === 0) {
+                    // Flatten the traces array in case of confusion matrices
+                    const flattenedTraces = traces.reduce((acc, trace) => {
+                        if (Array.isArray(trace)) {
+                            return acc.concat(trace);
+                        }
+                        return acc.concat(trace);
+                    }, []);
+
+                    if (flattenedTraces.length === 0) {
                         plotDiv.innerHTML = '<div class="text-center text-muted">No data available for the selected parameters</div>';
                         return;
                     }
@@ -243,7 +336,7 @@
                         displayModeBar: false
                     };
 
-                    Plotly.newPlot('statePlot', traces, layout, config);
+                    Plotly.newPlot('statePlot', flattenedTraces, layout, config);
                 })
                 .catch(error => {
                     console.error('Error:', error);
