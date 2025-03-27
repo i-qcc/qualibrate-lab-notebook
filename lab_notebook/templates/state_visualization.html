@@ -317,17 +317,36 @@
                     const layout = {
                         title: 'State Parameters Over Time',
                         xaxis: {
-                            title: 'Time',
+                            title: {
+                                text: 'Time',
+                                standoff: 15
+                            },
                             tickformat: '%Y-%m-%d %H:%M:%S',
-                            tickangle: 45
+                            tickangle: 45,
+                            tickfont: {
+                                size: 10
+                            },
+                            automargin: true
                         },
                         yaxis: {
-                            title: 'Value'
+                            title: {
+                                text: 'Value',
+                                standoff: 15
+                            }
                         },
                         showlegend: true,
                         height: 600,
                         margin: {
-                            b: 100
+                            l: 80,  // Left margin
+                            r: 20,  // Right margin
+                            t: 50,  // Top margin
+                            b: 120  // Bottom margin
+                        },
+                        legend: {
+                            yanchor: "top",
+                            y: 0.99,
+                            xanchor: "right",
+                            x: 0.99
                         }
                     };
 
