@@ -7,15 +7,16 @@ name = "lab-notebook"
 version = "0.1.0"
 description = "A web-based application for viewing and organizing laboratory experiment plots chronologically"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.11,<3.13"
 license = "MIT"
 authors = [
-    { name = "Your Name", email = "your.email@example.com" }
+    { name = "Omrie Ovdat", email = "omrie.ovdat@quamtum-machines.co" }
 ]
 dependencies = [
     "flask>=3.0.2",
     "python-dateutil>=2.8.2",
     "numpy>=1.26.4",
+    "matplotlib>=3.8.3",
     "h5py>=3.10.0",
 ]
 

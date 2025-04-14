@@ -113,7 +113,7 @@ def test_state_changes():
     set_lab_data_path(test_dir)
     
     # Get experiment data
-    experiments = get_experiment_data(force_refresh=True)
+    experiments = get_experiment_data(full_refresh=True)
     
     # Verify we have two experiments
     assert len(experiments) == 2, f"Expected 2 experiments, got {len(experiments)}"

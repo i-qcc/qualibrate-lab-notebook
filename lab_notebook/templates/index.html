@@ -129,11 +129,6 @@
             <a class="navbar-brand" href="{{ url_for('index') }}">
                 <i class="fas fa-flask me-2"></i>Lab Notebook
             </a>
-            <div class="ms-auto">
-                <button id="refreshButton" class="btn btn-outline-light">
-                    <i class="fas fa-sync-alt me-2"></i>Refresh State Log
-                </button>
-            </div>
         </div>
     </nav>
 
@@ -234,6 +229,43 @@
             </div>
             {% endfor %}
         </div>
+        
+        {% if total_pages > 1 %}
+        <div class="row mt-4">
+            <div class="col-12">
+                <nav aria-label="Experiment pagination">
+                    <ul class="pagination justify-content-center">
+                        <li class="page-item {% if current_page == 1 %}disabled{% endif %}">
+                            <a class="page-link" href="{{ url_for('backend_view', backend_name=backend_name, page=current_page-1) if current_page > 1 else '#' }}" aria-label="Previous">
+                                <span aria-hidden="true">&laquo;</span>
+                            </a>
+                        </li>
+                        
+                        {% for page_num in range(1, total_pages + 1) %}
+                            {% if page_num == current_page %}
+                                <li class="page-item active">
+                                    <span class="page-link">{{ page_num }}</span>
+                                </li>
+                            {% else %}
+                                <li class="page-item">
+                                    <a class="page-link" href="{{ url_for('backend_view', backend_name=backend_name, page=page_num) }}">{{ page_num }}</a>
+                                </li>
+                            {% endif %}
+                        {% endfor %}
+                        
+                        <li class="page-item {% if current_page == total_pages %}disabled{% endif %}">
+                            <a class="page-link" href="{{ url_for('backend_view', backend_name=backend_name, page=current_page+1) if current_page < total_pages else '#' }}" aria-label="Next">
+                                <span aria-hidden="true">&raquo;</span>
+                            </a>
+                        </li>
+                    </ul>
+                </nav>
+                <div class="text-center text-muted mt-2">
+                    Showing experiments {{ (current_page-1)*200 + 1 }} to {{ [current_page*200, total_experiments]|min }} of {{ total_experiments }}
+                </div>
+            </div>
+        </div>
+        {% endif %}
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
@@ -246,32 +278,6 @@
                     interval: false
                 });
             });
-        });
-
-        // Handle refresh button
-        document.getElementById('refreshButton').addEventListener('click', function() {
-            const button = this;
-            const originalText = button.innerHTML;
-            button.disabled = true;
-            button.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Refreshing...';
-            
-            fetch('/api/refresh_log')
-                .then(response => response.json())
-                .then(data => {
-                    if (data.status === 'success') {
-                        // Reload the page to show updated data
-                        window.location.reload();
-                    } else {
-                        alert('Error refreshing state log: ' + data.message);
-                    }
-                })
-                .catch(error => {
-                    alert('Error refreshing state log: ' + error);
-                })
-                .finally(() => {
-                    button.disabled = false;
-                    button.innerHTML = originalText;
-                });
         });
 
         // Handle view toggle buttons
@@ -288,26 +294,37 @@
             activeButton.classList.add('active');
         }
 
-        function filterExperiments() {
-            const searchTerm = searchInput.value.toLowerCase();
+        function updateFilters() {
+            const searchTerm = searchInput.value;
             const fromDate = dateFrom.value;
             const toDate = dateTo.value;
             
-            document.querySelectorAll('.experiment-item').forEach(item => {
-                const name = item.dataset.name.toLowerCase();
-                const date = item.dataset.date;
-                
-                const matchesSearch = name.includes(searchTerm);
-                const matchesDateFrom = !fromDate || date >= fromDate;
-                const matchesDateTo = !toDate || date <= toDate;
-                
-                if (matchesSearch && matchesDateFrom && matchesDateTo) {
-                    item.classList.remove('hidden');
-                } else {
-                    item.classList.add('hidden');
-                }
-            });
+            // Build URL with current filters
+            let url = new URL(window.location.href);
+            url.searchParams.set('search', searchTerm);
+            url.searchParams.set('date_from', fromDate);
+            url.searchParams.set('date_to', toDate);
+            url.searchParams.set('page', '1'); // Reset to first page when filters change
+            
+            // Navigate to new URL
+            window.location.href = url.toString();
         }
+
+        // Initialize filter values from URL parameters
+        const urlParams = new URLSearchParams(window.location.search);
+        searchInput.value = urlParams.get('search') || '';
+        dateFrom.value = urlParams.get('date_from') || '';
+        dateTo.value = urlParams.get('date_to') || '';
+
+        // Add debounced search
+        let searchTimeout;
+        searchInput.addEventListener('input', (e) => {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(updateFilters, 500);
+        });
+
+        dateFrom.addEventListener('change', updateFilters);
+        dateTo.addEventListener('change', updateFilters);
 
         gridView.addEventListener('click', function() {
             experimentGrid.classList.remove('list-view');
@@ -328,10 +345,6 @@
                 col.style.maxWidth = '100%';
             });
         });
-
-        searchInput.addEventListener('input', filterExperiments);
-        dateFrom.addEventListener('change', filterExperiments);
-        dateTo.addEventListener('change', filterExperiments);
     </script>
 </body>
 </html> 
