@@ -12,15 +12,16 @@ import numpy as np
 from functools import lru_cache
 import time
 from pathlib import Path
+import hashlib
 
 app = Flask(__name__)
 
 # Default configuration
 DEFAULT_LAB_DATA_PATH = "/home/omrieoqm/.qualibrate/user_storage"
 LAB_DATA_PATH = DEFAULT_LAB_DATA_PATH
-STATE_LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "state_log.yml")
-CACHE_DIR = os.path.expanduser("~/.lab_notebook_app")
-CACHE_FILE = os.path.join(CACHE_DIR, "experiment_cache.json")
+STATE_LOGS_DIR = os.path.expanduser("~/.lab_notebook/state_logs")
+CACHE_DIR = os.path.expanduser("~/.lab_notebook/experiment_cache")
+os.makedirs(CACHE_DIR, exist_ok=True)
 
 # Cache for experiment data
 _experiment_cache = {
@@ -29,9 +30,38 @@ _experiment_cache = {
     'is_valid': True  # Flag to indicate if cache is valid
 }
 
+def get_path_id(lab_path):
+    """Get a 4-digit integer ID for a given lab path"""
+    # Generate MD5 hash
+    path_hash = hashlib.md5(lab_path.encode()).hexdigest()
+    # Convert first 4 characters of hash to integer and take modulo 10000
+    return int(path_hash[:4], 16) % 10000
+
+def get_state_log_path(lab_path):
+    """Get the state log path for a given lab path"""
+    # Create state logs directory if it doesn't exist
+    os.makedirs(STATE_LOGS_DIR, exist_ok=True)
+    
+    # Get the path ID
+    path_id = get_path_id(lab_path)
+    
+    # Create the state log file path
+    return os.path.join(STATE_LOGS_DIR, f"{path_id}_state_log.yml")
+
+def get_cache_file_path(lab_path):
+    """Get the cache file path for a given lab path"""
+    # Get the path ID
+    path_id = get_path_id(lab_path)
+    
+    # Create the cache file path
+    return os.path.join(CACHE_DIR, f"{path_id}_experiment_cache.json")
+
+# Initialize STATE_LOG_FILE and CACHE_FILE with the default path
+STATE_LOG_FILE = get_state_log_path(LAB_DATA_PATH)
+CACHE_FILE = get_cache_file_path(LAB_DATA_PATH)
+
 def save_experiment_cache():
     """Save the experiment cache to a file"""
-    os.makedirs(CACHE_DIR, exist_ok=True)
     with open(CACHE_FILE, 'w') as f:
         json.dump(_experiment_cache, f, indent=2)
 
@@ -48,10 +78,12 @@ def load_experiment_cache():
 
 def set_lab_data_path(path):
     """Set the lab data path and ensure it exists"""
-    global LAB_DATA_PATH
+    global LAB_DATA_PATH, STATE_LOG_FILE, CACHE_FILE
     if not os.path.exists(path):
         raise ValueError(f"Path does not exist: {path}")
     LAB_DATA_PATH = path
+    STATE_LOG_FILE = get_state_log_path(path)
+    CACHE_FILE = get_cache_file_path(path)
 
 def get_latest_logged_timestamp():
     """Get the timestamp of the latest entry in the state log"""

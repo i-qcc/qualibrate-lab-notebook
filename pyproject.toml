@@ -43,4 +43,16 @@ target-version = ["py38"]
 
 [tool.isort]
 profile = "black"
-multi_line_output = 3 
+multi_line-output = 3
+
+[project.scripts]
+lab-notebook = "lab_notebook.app:main"
+
+[project.urls]
+"Homepage" = "https://github.com/i-qcc/lab_notebook_poc"
+"Bug Tracker" = "https://github.com/i-qcc/lab_notebook_poc/issues"
+
+[project.config]
+default_lab_path = "/home/omrieoqm/.qualibrate/user_storage"
+state_logs_dir = "~/.lab_notebook/state_logs"
+experiment_cache_dir = "~/.lab_notebook/experiment_cache" 
