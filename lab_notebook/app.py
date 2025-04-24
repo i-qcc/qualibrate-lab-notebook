@@ -3,28 +3,23 @@ import json
 from datetime import datetime
 from flask import Flask, render_template, jsonify, send_file, abort, request
 from dateutil import parser
-from collections import defaultdict
-import glob
-import ast
 import argparse
-from lab_notebook.log_utils import ChangeAnalyzer, get_sorted_experiments, log_state_changes
-import numpy as np
-from functools import lru_cache
 import time
-from pathlib import Path
 import hashlib
+from lab_notebook.config import (
+    DEFAULT_LAB_DATA_PATH,
+    LAB_DATA_PATH,
+    STATE_LOG_FILE,
+    CACHE_FILE,
+    get_state_log_path,
+    get_cache_file_path
+)
+from lab_notebook.log_utils import compare_dicts, load_json
 
 app = Flask(__name__)
 
-# Default configuration
-DEFAULT_LAB_DATA_PATH = "/home/omrieoqm/.qualibrate/user_storage"
-LAB_DATA_PATH = DEFAULT_LAB_DATA_PATH
-STATE_LOGS_DIR = os.path.expanduser("~/.lab_notebook/state_logs")
-CACHE_DIR = os.path.expanduser("~/.lab_notebook/experiment_cache")
-os.makedirs(CACHE_DIR, exist_ok=True)
-
 # Cache for experiment data
-_experiment_cache = {
+_EXPERIMENT_CACHE = {
     'data': None,
     'timestamp': 0,
     'is_valid': True  # Flag to indicate if cache is valid
@@ -37,40 +32,20 @@ def get_path_id(lab_path):
     # Convert first 4 characters of hash to integer and take modulo 10000
     return int(path_hash[:4], 16) % 10000
 
-def get_state_log_path(lab_path):
-    """Get the state log path for a given lab path"""
-    # Create state logs directory if it doesn't exist
-    os.makedirs(STATE_LOGS_DIR, exist_ok=True)
-    
-    # Get the path ID
-    path_id = get_path_id(lab_path)
-    
-    # Create the state log file path
-    return os.path.join(STATE_LOGS_DIR, f"{path_id}_state_log.yml")
-
-def get_cache_file_path(lab_path):
-    """Get the cache file path for a given lab path"""
-    # Get the path ID
-    path_id = get_path_id(lab_path)
-    
-    # Create the cache file path
-    return os.path.join(CACHE_DIR, f"{path_id}_experiment_cache.json")
-
-# Initialize STATE_LOG_FILE and CACHE_FILE with the default path
-STATE_LOG_FILE = get_state_log_path(LAB_DATA_PATH)
-CACHE_FILE = get_cache_file_path(LAB_DATA_PATH)
-
 def save_experiment_cache():
     """Save the experiment cache to a file"""
+    global _EXPERIMENT_CACHE
     with open(CACHE_FILE, 'w') as f:
-        json.dump(_experiment_cache, f, indent=2)
+        json.dump(_EXPERIMENT_CACHE, f, indent=2)
 
 def load_experiment_cache():
     """Load the experiment cache from file if it exists"""
     if os.path.exists(CACHE_FILE):
         try:
             with open(CACHE_FILE, 'r') as f:
-                return json.load(f)
+                global _EXPERIMENT_CACHE
+                _EXPERIMENT_CACHE = json.load(f)
+                return _EXPERIMENT_CACHE
         except (json.JSONDecodeError, ValueError):
             print("Warning: Cache file corrupted, starting fresh")
             return None
@@ -92,27 +67,58 @@ def get_latest_logged_timestamp():
     
     latest_timestamp = 0
     with open(STATE_LOG_FILE, 'r') as f:
-        for line in f:
-            try:
-                timestamp = int(line.split(" at ")[-1].strip())
-                latest_timestamp = max(latest_timestamp, timestamp)
-            except (ValueError, IndexError):
-                continue
+        try:
+            first_line = f.readline().strip()
+            latest_timestamp = int(first_line.split(" at ")[-1].strip())
+        except:
+            print("State log file is corrupted first line is not in the expected format")
+            os.remove(STATE_LOG_FILE)
+            print("State log file deleted. Setting latest timestamp to 0.")
+            latest_timestamp = 0
     
     return latest_timestamp
 
+
+def log_state_changes(experiments: list[dict], log_file: str = "state_log.yml"):
+
+    all_changes = []
+
+    prev_state, prev_wiring = None, None
+
+    for exp in experiments:
+        state_path = exp["state_file"]
+        wiring_path = exp["wiring_file"]
+        timestamp = exp["timestamp"]  # Already a Unix timestamp
+
+        curr_state = load_json(state_path)
+        curr_wiring = load_json(wiring_path)
+
+        backend = curr_wiring["network"].get("quantum_computer_backend", "unspecified_backend")
+
+        if prev_state is not None:
+            state_changes = compare_dicts(prev_state, curr_state, timestamp, backend)
+            wiring_changes = compare_dicts(prev_wiring, curr_wiring, timestamp, backend)
+
+            all_changes.extend(state_changes + wiring_changes)
+
+        prev_state, prev_wiring = curr_state, curr_wiring
+
+    with open(log_file, 'a') as f:  # Open the file in append mode
+        f.write("\n".join(all_changes) + "\n")
+    print(f"Changes appended to {log_file}")
+
 def update_state_log_incremental():
     """Update the state log with only new experiments since last update"""
+    global _EXPERIMENT_CACHE
     latest_timestamp = get_latest_logged_timestamp()
     
-    experiments = get_sorted_experiments(LAB_DATA_PATH, from_timestamp=latest_timestamp)
+    new_experiments = [exp for exp in _EXPERIMENT_CACHE['data'] if exp['timestamp'] > latest_timestamp]
     
-    new_experiments = [exp for exp in experiments if exp['timestamp'] > latest_timestamp]
-    
-    log_state_changes(STATE_LOG_FILE, experiments=new_experiments)
+    log_state_changes(new_experiments, log_file=STATE_LOG_FILE)
 
 def get_state_data(backend_name, key, from_date=None, to_date=None):
     """Get state data for a specific key and time range"""
+    global _EXPERIMENT_CACHE
     if not os.path.exists(STATE_LOG_FILE):
         return {
             "timestamps": [],
@@ -152,8 +158,8 @@ def get_state_data(backend_name, key, from_date=None, to_date=None):
                     continue
                 
                 # Get the timestamp from the experiment data
-                experiments = get_experiment_data()
-                for exp in experiments:
+                update_experiment_data()
+                for exp in _EXPERIMENT_CACHE['data']:
                     if any(key in change for change in exp.get('state_changes', [])):
                         timestamp = exp.get('timestamp', 0)
                         changes.append((timestamp, new_value))
@@ -261,30 +267,43 @@ def get_state_changes(node_data):
 
 def format_path(path):
     """Format a path for display in state changes"""
-    return '.'.join(str(p) for p in path)
+    # Convert path to string if it's not already
+    path_str = str(path)
+    
+    # Remove leading slash if present
+    if path_str.startswith('/'):
+        path_str = path_str[1:]
+    
+    # Remove 'quam/' prefix if present
+    if path_str.startswith('quam/'):
+        path_str = path_str[5:]
+    
+    # Split by '/' and join with dots
+    return '.'.join(path_str.split('/'))
 
-def get_experiment_data(full_refresh=False):
+def update_experiment_data(full_refresh=False):
     """Get all experiment data organized by date and quantum computer backend"""
-    global _experiment_cache
+    
+    global _EXPERIMENT_CACHE
     
     # If forcing refresh, clear the cache
     if full_refresh:
-        _experiment_cache = {
+        _EXPERIMENT_CACHE = {
             'data': None,
-            'timestamp': 0,
+            'latest_timestamp': 0,
             'is_valid': True
         }
     else:
         # Try to load from file cache first
         file_cache = load_experiment_cache()
         if file_cache is not None:
-            _experiment_cache = file_cache
+            _EXPERIMENT_CACHE = file_cache
     
     # If cache is valid and not empty, use it
-    if _experiment_cache['data'] is not None and _experiment_cache['is_valid']:
-        experiments = _experiment_cache['data'].copy()
+    if _EXPERIMENT_CACHE['data'] is not None and _EXPERIMENT_CACHE['is_valid']:
+        experiments = _EXPERIMENT_CACHE['data'].copy()
         # Get the latest experiment timestamp from cache
-        latest_timestamp = max(exp['timestamp'] for exp in experiments)
+        latest_timestamp = _EXPERIMENT_CACHE['latest_timestamp']
     else:
         experiments = []
         latest_timestamp = None  # Will trigger full scan
@@ -301,14 +320,14 @@ def get_experiment_data(full_refresh=False):
         
         # Get all date folders and sort them by creation time
         date_folders = []
-        for date_folder_name in os.listdir(folder_path):
+        for date_folder_name in os.listdir(folder_path): # TODO: make this scanning more robust
             if os.path.isdir(os.path.join(folder_path, date_folder_name)):
                 # Get creation time of the date folder in Unix timestamp
                 creation_time = int(os.path.getctime(os.path.join(folder_path, date_folder_name)))
                 date_folders.append((date_folder_name, creation_time))
         
         # Sort date folders by creation time in descending order (newest first)
-        date_folders.sort(key=lambda x: x[1], reverse=True)
+        date_folders.sort(key=lambda x: x[1], reverse=True) # TODO : consider using a different way of sorting
         
         for date_folder_name, date_folder_creation_time in date_folders:
             # Skip older date folders if we have cached data
@@ -359,7 +378,8 @@ def get_experiment_data(full_refresh=False):
                     'lab_folder': folder,
                     'state_changes': [],
                     'quantum_computer_backend': 'unspecified_backend_name',  # Default value
-                    'state_file': state_file  # Store state file path for later use
+                    'state_file': state_file,  # Store state file path for later use
+                    'wiring_file': wiring_file
                 }
                 
                 # Load metadata and extract timestamp
@@ -407,42 +427,45 @@ def get_experiment_data(full_refresh=False):
     experiments.sort(key=lambda x: x['timestamp'], reverse=True)
     
     # Update cache
-    _experiment_cache['data'] = experiments
-    _experiment_cache['timestamp'] = time.time()
-    _experiment_cache['is_valid'] = True
+    _EXPERIMENT_CACHE['data'] = experiments
+    _EXPERIMENT_CACHE['latest_timestamp'] = experiments[0]['timestamp']
+    _EXPERIMENT_CACHE['is_valid'] = True
     
     # Save cache to file
     save_experiment_cache()
-    
-    return experiments
 
 @app.route('/')
 def index():
-    # Do incremental update for subsequent requests
-    update_state_log_incremental()
-    
+    global _EXPERIMENT_CACHE
     # Check if this is the first request since app start
     if not hasattr(app, '_initial_scan_done'):
         # Use cached data on first request unless full refresh was requested
-        experiments = get_experiment_data(full_refresh=getattr(app, '_force_full_refresh', False))
+        update_experiment_data(full_refresh=getattr(app, '_force_full_refresh', False))
         app._initial_scan_done = True
     else:
         # Do incremental update for subsequent requests
-        experiments = get_experiment_data(full_refresh=False)
+        update_experiment_data(full_refresh=False)
     
-    backend_names = sorted(set(exp['quantum_computer_backend'] for exp in experiments))
+    # Do incremental update for subsequent requests
+    update_state_log_incremental()
+    
+    
+    backend_names = sorted(set(exp['quantum_computer_backend'] for exp in _EXPERIMENT_CACHE['data']))
     return render_template('backend_selection.html', backend_names=backend_names)
 
 @app.route('/backend/<backend_name>')
 def backend_view(backend_name):
+    
+    global _EXPERIMENT_CACHE
+    
     page = request.args.get('page', 1, type=int)
     search_term = request.args.get('search', '').lower()
     date_from = request.args.get('date_from', '')
     date_to = request.args.get('date_to', '')
     per_page = 200  # Number of experiments per page
     
-    experiments = get_experiment_data()
-    backend_experiments = [exp for exp in experiments if exp['quantum_computer_backend'] == backend_name]
+    update_experiment_data()
+    backend_experiments = [exp for exp in _EXPERIMENT_CACHE['data'] if exp['quantum_computer_backend'] == backend_name]
     
     # Apply filters
     if search_term:
@@ -479,14 +502,18 @@ def backend_view(backend_name):
 @app.route('/state_visualization')
 def state_visualization():
     # Get all available backend names
-    experiments = get_experiment_data()
-    backend_names = sorted(set(exp['quantum_computer_backend'] for exp in experiments))
+    global _EXPERIMENT_CACHE
+    update_experiment_data()
+    backend_names = sorted(set(exp['quantum_computer_backend'] for exp in _EXPERIMENT_CACHE['data']))
     
     return render_template('state_visualization.html',
                          backend_names=backend_names)
 
 @app.route('/api/state_data/<backend_name>')
 def get_state_data_api(backend_name):
+    
+    global _EXPERIMENT_CACHE
+    
     key = request.args.get('key')
     
     if not key:
@@ -494,8 +521,7 @@ def get_state_data_api(backend_name):
     
     try:
         # Get all experiments for this backend
-        experiments = _experiment_cache['data']
-        backend_experiments = [exp for exp in experiments if exp['quantum_computer_backend'] == backend_name]
+        backend_experiments = [exp for exp in _EXPERIMENT_CACHE['data'] if exp['quantum_computer_backend'] == backend_name]
         
         # Collect all state changes for this key
         changes = []
@@ -547,11 +573,13 @@ def get_state_data_api(backend_name):
 
 @app.route('/api/filter_state_keys/<backend_name>')
 def filter_state_keys(backend_name):
+    
+    global _EXPERIMENT_CACHE
+    
     filter_text = request.args.get('filter', '').lower()
     
     # Get all experiments for this backend
-    experiments = _experiment_cache['data']
-    backend_experiments = [exp for exp in experiments if exp['quantum_computer_backend'] == backend_name]
+    backend_experiments = [exp for exp in _EXPERIMENT_CACHE['data'] if exp['quantum_computer_backend'] == backend_name]
     
     # Collect all unique state keys
     keys = set()

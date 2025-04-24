@@ -6,48 +6,48 @@ import datetime
 import dateutil.parser
 from ast import literal_eval
 
-def get_sorted_experiments(base_path, from_timestamp=None):
-    experiments = []
-    base = Path(base_path)
+# def get_sorted_experiments(base_path, from_timestamp=None):
+#     experiments = []
+#     base = Path(base_path)
     
-    for project_folder in base.iterdir():
-        if project_folder.is_dir():
-            # Get all date folders and sort them by creation time
-            date_folders = []
-            for date_folder in project_folder.iterdir():
-                if date_folder.is_dir():
-                    # Get creation time of the date folder as Unix timestamp
-                    creation_time = int(date_folder.stat().st_mtime)
-                    date_folders.append((date_folder, creation_time))
+#     for project_folder in base.iterdir():
+#         if project_folder.is_dir():
+#             # Get all date folders and sort them by creation time
+#             date_folders = []
+#             for date_folder in project_folder.iterdir():
+#                 if date_folder.is_dir():
+#                     # Get creation time of the date folder as Unix timestamp
+#                     creation_time = int(date_folder.stat().st_mtime)
+#                     date_folders.append((date_folder, creation_time))
             
-            # Sort date folders by creation time in descending order (newest first)
-            date_folders.sort(key=lambda x: x[1], reverse=True)
+#             # Sort date folders by creation time in descending order (newest first)
+#             date_folders.sort(key=lambda x: x[1], reverse=True)
             
-            # Process date folders
-            for date_folder, creation_time in date_folders:
-                # If we have a from_timestamp and this folder is older, skip it and all older folders
-                if from_timestamp is not None and creation_time < from_timestamp:
-                    break
+#             # Process date folders
+#             for date_folder, creation_time in date_folders:
+#                 # If we have a from_timestamp and this folder is older, skip it and all older folders
+#                 if from_timestamp is not None and creation_time < from_timestamp:
+#                     break
                     
-                for exp_folder in date_folder.iterdir():
-                    if exp_folder.is_dir():
-                        node_file = exp_folder / "node.json"
-                        state_file = exp_folder / "quam_state" / "state.json"
-                        wiring_file = exp_folder / "quam_state" / "wiring.json"
-                        if state_file.exists() and wiring_file.exists() and node_file.exists():
-                            metadata = load_json(node_file)
+#                 for exp_folder in date_folder.iterdir():
+#                     if exp_folder.is_dir():
+#                         node_file = exp_folder / "node.json"
+#                         state_file = exp_folder / "quam_state" / "state.json"
+#                         wiring_file = exp_folder / "quam_state" / "wiring.json"
+#                         if state_file.exists() and wiring_file.exists() and node_file.exists():
+#                             metadata = load_json(node_file)
         
-                            if "created_at" not in metadata:
-                                raise ValueError(f"Missing 'created_at' in {node_file}")
+#                             if "created_at" not in metadata:
+#                                 raise ValueError(f"Missing 'created_at' in {node_file}")
                             
-                            # Parse timestamp and ensure it's a Unix timestamp
-                            timestamp = parse_timestamp(metadata["created_at"])
-                            id = metadata["id"]
+#                             # Parse timestamp and ensure it's a Unix timestamp
+#                             timestamp = parse_timestamp(metadata["created_at"])
+#                             id = metadata["id"]
                             
-                            experiments.append(dict(state_file=state_file, wiring_file=wiring_file, node_file=node_file, timestamp=timestamp, id=id))                       
+#                             experiments.append(dict(state_file=state_file, wiring_file=wiring_file, node_file=node_file, timestamp=timestamp, id=id))                       
     
-    experiments.sort(key=lambda x: x["id"])
-    return experiments
+#     experiments.sort(key=lambda x: x["id"])
+#     return experiments
 
 def load_json(file_path):
     with open(file_path, 'r') as f:
@@ -79,10 +79,6 @@ def compare_dicts(dict1: dict, dict2: dict, timestamp: int, backend: str):
             changes.append(f"{backend} - {key} : {flat1.get(key)} -> {flat2.get(key)} at {timestamp}")
     
     return changes
-
-def log_changes(log_path, changes):
-    with open(log_path, 'w') as f:
-        f.write("\n".join(changes) + "\n")
 
 class ChangeAnalyzer:
     def __init__(self, log_file: str, backend: str):
@@ -146,37 +142,6 @@ class ChangeAnalyzer:
         plt.grid()
         plt.show()
 
-
-def log_state_changes(log_file: str = "state_log.yml", path: str = "/home/omrieoqm/.qualibrate/user_storage", experiments: list[dict] = None):
-    
-    if experiments is None:
-        experiments = get_sorted_experiments(path)
-        
-    all_changes = []
-    
-    prev_state, prev_wiring = None, None
-    
-    for exp in experiments:
-        state_path = exp["state_file"]
-        wiring_path = exp["wiring_file"]
-        timestamp = exp["timestamp"]  # Already a Unix timestamp
-        
-        curr_state = load_json(state_path)
-        curr_wiring = load_json(wiring_path)
-        
-        backend = curr_wiring["network"].get("quantum_computer_backend", "unspecified_backend")
-        
-        if prev_state is not None:
-            state_changes = compare_dicts(prev_state, curr_state, timestamp, backend)
-            wiring_changes = compare_dicts(prev_wiring, curr_wiring, timestamp, backend)
-            
-            all_changes.extend(state_changes + wiring_changes)
-
-        prev_state, prev_wiring = curr_state, curr_wiring
-    
-    
-    log_changes(log_file, all_changes)
-    print(f"Changes logged to {log_file}")
 
 if __name__ == "__main__":
     

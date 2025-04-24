@@ -2,7 +2,7 @@ import os
 import json
 import shutil
 from datetime import datetime, timezone
-from lab_notebook.app import get_experiment_data, get_state_changes
+from lab_notebook.app import update_experiment_data, get_state_changes
 
 def create_test_experiment(base_path, exp_name, timestamp, state_data, patches=None):
     """Create a test experiment with the given state data"""
@@ -113,7 +113,7 @@ def test_state_changes():
     set_lab_data_path(test_dir)
     
     # Get experiment data
-    experiments = get_experiment_data(full_refresh=True)
+    experiments = update_experiment_data(full_refresh=True)
     
     # Verify we have two experiments
     assert len(experiments) == 2, f"Expected 2 experiments, got {len(experiments)}"
