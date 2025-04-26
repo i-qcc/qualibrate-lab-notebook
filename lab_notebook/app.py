@@ -34,16 +34,18 @@ def get_path_id(lab_path):
 
 def save_experiment_cache():
     """Save the experiment cache to a file"""
-    global _EXPERIMENT_CACHE
+    
     with open(CACHE_FILE, 'w') as f:
         json.dump(_EXPERIMENT_CACHE, f, indent=2)
+    
+    print(f"Experiment cache updated with {len(_EXPERIMENT_CACHE['data'])} experiments to {CACHE_FILE}.")
 
 def load_experiment_cache():
     """Load the experiment cache from file if it exists"""
     if os.path.exists(CACHE_FILE):
         try:
             with open(CACHE_FILE, 'r') as f:
-                global _EXPERIMENT_CACHE
+                
                 _EXPERIMENT_CACHE = json.load(f)
                 return _EXPERIMENT_CACHE
         except (json.JSONDecodeError, ValueError):
@@ -79,13 +81,21 @@ def get_latest_logged_timestamp():
     return latest_timestamp
 
 
-def log_state_changes(experiments: list[dict], log_file: str = "state_log.yml"):
+def log_state_changes(from_timestamp: int, log_file_path: str):
 
+    
+    
     all_changes = []
 
-    prev_state, prev_wiring = None, None
+    is_state_changes_logged = False
+    prev_state = None
+    
+    num_experiments = len(_EXPERIMENT_CACHE['data'])
 
-    for exp in experiments:
+    for i, exp in enumerate(_EXPERIMENT_CACHE['data']):
+        if exp["timestamp"] < from_timestamp:
+            break # timestamp is sorted in _EXPERIMENT_CACHE['data']
+
         state_path = exp["state_file"]
         wiring_path = exp["wiring_file"]
         timestamp = exp["timestamp"]  # Already a Unix timestamp
@@ -97,28 +107,36 @@ def log_state_changes(experiments: list[dict], log_file: str = "state_log.yml"):
 
         if prev_state is not None:
             state_changes = compare_dicts(prev_state, curr_state, timestamp, backend)
-            wiring_changes = compare_dicts(prev_wiring, curr_wiring, timestamp, backend)
+            # wiring_changes = compare_dicts(prev_wiring, curr_wiring, timestamp, backend)
 
-            all_changes.extend(state_changes + wiring_changes)
+            all_changes.extend(state_changes)
+            # all_changes.extend(state_changes + wiring_changes)
 
-        prev_state, prev_wiring = curr_state, curr_wiring
+            if len(_EXPERIMENT_CACHE['data'][i-1]["state_changes"]) == 0: # TODO : in case the state changes are not already logged from the patches keys in node.json - this is a hack to bypass a current bug in qualibrate when running graphs 
+                _EXPERIMENT_CACHE['data'][i-1]["state_changes"] = [
+                    change[len(backend + ' - '):].rsplit(' at ', 1)[0] for change in state_changes
+                ]  # no logging if backend name and timestamp
+                is_state_changes_logged = True
+        # prev_state, prev_wiring = curr_state, curr_wiring
+        prev_state = curr_state
 
-    with open(log_file, 'a') as f:  # Open the file in append mode
+    with open(log_file_path, 'a') as f:  # Open the file in append mode
         f.write("\n".join(all_changes) + "\n")
-    print(f"Changes appended to {log_file}")
+    print(f"Changes appended to {log_file_path}")
+    
+    if is_state_changes_logged:
+        save_experiment_cache()
 
 def update_state_log_incremental():
     """Update the state log with only new experiments since last update"""
-    global _EXPERIMENT_CACHE
+    
     latest_timestamp = get_latest_logged_timestamp()
     
-    new_experiments = [exp for exp in _EXPERIMENT_CACHE['data'] if exp['timestamp'] > latest_timestamp]
-    
-    log_state_changes(new_experiments, log_file=STATE_LOG_FILE)
+    log_state_changes(latest_timestamp, log_file_path=STATE_LOG_FILE)
 
 def get_state_data(backend_name, key, from_date=None, to_date=None):
     """Get state data for a specific key and time range"""
-    global _EXPERIMENT_CACHE
+    
     if not os.path.exists(STATE_LOG_FILE):
         return {
             "timestamps": [],
@@ -293,7 +311,7 @@ def update_experiment_data(full_refresh=False):
             'latest_timestamp': 0,
             'is_valid': True
         }
-    else:
+    else: # TODO: only need to load from file cache in the first run of app
         # Try to load from file cache first
         file_cache = load_experiment_cache()
         if file_cache is not None:
@@ -436,7 +454,7 @@ def update_experiment_data(full_refresh=False):
 
 @app.route('/')
 def index():
-    global _EXPERIMENT_CACHE
+    
     # Check if this is the first request since app start
     if not hasattr(app, '_initial_scan_done'):
         # Use cached data on first request unless full refresh was requested
@@ -456,7 +474,7 @@ def index():
 @app.route('/backend/<backend_name>')
 def backend_view(backend_name):
     
-    global _EXPERIMENT_CACHE
+    
     
     page = request.args.get('page', 1, type=int)
     search_term = request.args.get('search', '').lower()
@@ -502,7 +520,7 @@ def backend_view(backend_name):
 @app.route('/state_visualization')
 def state_visualization():
     # Get all available backend names
-    global _EXPERIMENT_CACHE
+    
     update_experiment_data()
     backend_names = sorted(set(exp['quantum_computer_backend'] for exp in _EXPERIMENT_CACHE['data']))
     
@@ -512,7 +530,7 @@ def state_visualization():
 @app.route('/api/state_data/<backend_name>')
 def get_state_data_api(backend_name):
     
-    global _EXPERIMENT_CACHE
+    
     
     key = request.args.get('key')
     
@@ -574,7 +592,7 @@ def get_state_data_api(backend_name):
 @app.route('/api/filter_state_keys/<backend_name>')
 def filter_state_keys(backend_name):
     
-    global _EXPERIMENT_CACHE
+    
     
     filter_text = request.args.get('filter', '').lower()
     
@@ -616,8 +634,8 @@ if __name__ == '__main__':
         app._force_full_refresh = args.full_refresh
         if args.full_refresh:
             print("Performing full refresh of experiment cache")
-        # Update state log when starting the application
-        update_state_log_incremental()
+        # # Update state log when starting the application
+        # update_state_log_incremental()
         app.run(debug=True) 
     except ValueError as e:
         print(f"Error: {e}")

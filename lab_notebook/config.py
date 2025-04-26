@@ -2,7 +2,7 @@ import os
 import hashlib
 
 # Default configuration
-DEFAULT_LAB_DATA_PATH = "/home/omrieoqm/.qualibrate/user_storage"
+DEFAULT_LAB_DATA_PATH = "/home/omrieoqm/.from_cloud_storage/user_storage" # "/home/omrieoqm/.qualibrate/user_storage"
 LAB_DATA_PATH = DEFAULT_LAB_DATA_PATH
 STATE_LOGS_DIR = os.path.expanduser("~/.lab_notebook/state_logs")
 CACHE_DIR = os.path.expanduser("~/.lab_notebook/experiment_cache")
