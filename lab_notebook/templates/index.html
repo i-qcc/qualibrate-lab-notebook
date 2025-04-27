@@ -6,6 +6,7 @@
     <title>Lab Notebook - {{ backend_name }}</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', path='style.css') }}" rel="stylesheet">
     <style>
         .experiment-card {
             transition: transform 0.2s;
@@ -126,7 +127,7 @@
 <body class="bg-light">
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
         <div class="container">
-            <a class="navbar-brand" href="{{ url_for('index') }}">
+            <a class="navbar-brand" href="/">
                 <i class="fas fa-flask me-2"></i>Lab Notebook
             </a>
         </div>
@@ -137,7 +138,7 @@
             <div class="col-12">
                 <div class="d-flex justify-content-between align-items-center mb-4">
                     <div>
-                        <a href="{{ url_for('index') }}" class="btn btn-outline-secondary back-button">
+                        <a href="/" class="btn btn-outline-secondary back-button">
                             <i class="fas fa-arrow-left me-2"></i>Back to Backend Selection
                         </a>
                         <h2 class="d-inline-block ms-3">{{ backend_name }}</h2>
@@ -183,7 +184,7 @@
                                 {% for plot_file in exp.plot_files %}
                                 <div class="carousel-item {% if loop.first %}active{% endif %}">
                                     <div class="plot-container">
-                                        <img src="{{ url_for('serve_plot', plot_path=plot_file.replace(LAB_DATA_PATH, '').lstrip('/')) }}" 
+                                        <img src="/plot/{{ plot_file.replace(LAB_DATA_PATH, '').lstrip('/') }}" 
                                              alt="Experiment plot" 
                                              class="card-img-top"
                                              onerror="this.onerror=null; this.parentElement.innerHTML='<div class=\'plot-error\'><i class=\'fas fa-exclamation-circle fa-2x\'></i><br>Plot not found</div>';">
@@ -236,7 +237,7 @@
                 <nav aria-label="Experiment pagination">
                     <ul class="pagination justify-content-center">
                         <li class="page-item {% if current_page == 1 %}disabled{% endif %}">
-                            <a class="page-link" href="{{ url_for('backend_view', backend_name=backend_name, page=current_page-1) if current_page > 1 else '#' }}" aria-label="Previous">
+                            <a class="page-link" href="/backend/{{ backend_name }}?page={{ current_page-1 }}" aria-label="Previous">
                                 <span aria-hidden="true">&laquo;</span>
                             </a>
                         </li>
@@ -248,13 +249,13 @@
                                 </li>
                             {% else %}
                                 <li class="page-item">
-                                    <a class="page-link" href="{{ url_for('backend_view', backend_name=backend_name, page=page_num) }}">{{ page_num }}</a>
+                                    <a class="page-link" href="/backend/{{ backend_name }}?page={{ page_num }}">{{ page_num }}</a>
                                 </li>
                             {% endif %}
                         {% endfor %}
                         
                         <li class="page-item {% if current_page == total_pages %}disabled{% endif %}">
-                            <a class="page-link" href="{{ url_for('backend_view', backend_name=backend_name, page=current_page+1) if current_page < total_pages else '#' }}" aria-label="Next">
+                            <a class="page-link" href="/backend/{{ backend_name }}?page={{ current_page+1 }}" aria-label="Next">
                                 <span aria-hidden="true">&raquo;</span>
                             </a>
                         </li>

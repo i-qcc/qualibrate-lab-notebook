@@ -1,59 +1,74 @@
-# Lab Notebook POC
+# Qualibrate Lab Notebook
 
-A web-based laboratory notebook application for tracking and visualizing quantum computing experiments.
+A web-based application for visualizing and analyzing experiment data from Qualibrate.
 
-## Features
+## About
 
-- View experiment data organized by quantum computer backend
-- Track state changes between experiments
-- Visualize experiment results with interactive plots
-- Automatic state log updates
-- Support for multiple lab folders
-- Per-lab-path state logs and experiment caches
+Qualibrate Lab Notebook is an extension to Qualibrate that provides a web-based interface for:
+- Visualizing experiment results and plots
+- Tracking state changes between experiments
+- Analyzing experiment data across different quantum computer backends
+- Organizing experiments chronologically
 
 ## Installation
 
-1. Clone the repository:
 ```bash
-git clone git@github.com:i-qcc/lab_notebook_poc.git
-cd lab_notebook_poc
-```
-
-2. Install dependencies:
-```bash
-pip install -r requirements.txt
+pip install qualibrate-lab-notebook
 ```
 
 ## Usage
 
-Run the application:
+Start the Qualibrate Lab Notebook server:
+
 ```bash
-python -m lab_notebook.app
+qualibrate-lab-notebook start --lab-path /path/to/your/qualibrate/data
 ```
 
-By default, the application will:
-- Scan the `/home/omrieoqm/.qualibrate/user_storage` directory for experiment data
-- Store state logs in `~/.lab_notebook/state_logs`
-- Store experiment caches in `~/.lab_notebook/experiment_cache`
+### Command Line Options
 
-To specify a custom lab data path:
+- `--lab-path`: Path to your Qualibrate data directory (default: ~/.qualibrate/user_storage)
+- `--host`: Host to bind the server to (default: 0.0.0.0)
+- `--port`: Port to bind the server to (default: 8000)
+- `--full-refresh`: Force a full refresh of the experiment cache
+
+### Examples
+
 ```bash
-python -m lab_notebook.app --lab-path /path/to/your/lab/data
+# Start with default settings (uses ~/.qualibrate/user_storage)
+qualibrate-lab-notebook start
+
+# Start with custom lab path
+qualibrate-lab-notebook start --lab-path /path/to/qualibrate_data
+
+# Start with custom host and port
+qualibrate-lab-notebook start --host 127.0.0.1 --port 8080
+
+# Start with full refresh
+qualibrate-lab-notebook start --full-refresh
 ```
 
-Each lab data path will have its own:
-- State log file (e.g., `1234_state_log.yml`)
-- Experiment cache file (e.g., `1234_experiment_cache.json`)
+## Features
 
-The numeric ID (e.g., 1234) is automatically generated based on the lab path.
+- Visualize Qualibrate experiment plots and results
+- Track state changes between experiments
+- Support for multiple quantum computer backends
+- Automatic experiment data caching
+- Web-based interface for easy access
+- Integration with Qualibrate's data storage format
 
-## Development
+## Requirements
 
-The application is built with:
-- Flask for the web framework
-- Plotly for interactive visualizations
-- YAML for state logging
+- Python 3.11 or 3.12
+- FastAPI
+- Uvicorn
+- Matplotlib
+- NumPy
+- H5Py
 
 ## License
 
-[Add your license information here] 
+BSD 3-Clause License
+
+## Author
+
+Quantum Machines (https://www.quantum-machines.co) 

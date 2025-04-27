@@ -1,11 +1,17 @@
 import os
 import json
 from datetime import datetime
-from flask import Flask, render_template, jsonify, send_file, abort, request
+from fastapi import FastAPI, HTTPException, Query, Path
+from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from fastapi.requests import Request
 from dateutil import parser
 import argparse
 import time
 import hashlib
+from typing import List, Optional, Dict, Any
+from pydantic import BaseModel
 from lab_notebook.config import (
     DEFAULT_LAB_DATA_PATH,
     LAB_DATA_PATH,
@@ -16,7 +22,13 @@ from lab_notebook.config import (
 )
 from lab_notebook.log_utils import compare_dicts, load_json
 
-app = Flask(__name__)
+app = FastAPI(title="Lab Notebook API")
+
+# Mount static files
+app.mount("/static", StaticFiles(directory="lab_notebook/static"), name="static")
+
+# Templates
+templates = Jinja2Templates(directory="lab_notebook/templates")
 
 # Cache for experiment data
 _EXPERIMENT_CACHE = {
@@ -24,6 +36,15 @@ _EXPERIMENT_CACHE = {
     'timestamp': 0,
     'is_valid': True  # Flag to indicate if cache is valid
 }
+
+# Pydantic models for request/response validation
+class StateDataResponse(BaseModel):
+    timestamps: List[str]
+    values: List[float]
+    error: Optional[str] = None
+
+class StateKeysResponse(BaseModel):
+    keys: List[str]
 
 def get_path_id(lab_path):
     """Get a 4-digit integer ID for a given lab path"""
@@ -452,9 +473,8 @@ def update_experiment_data(full_refresh=False):
     # Save cache to file
     save_experiment_cache()
 
-@app.route('/')
-def index():
-    
+@app.get("/", response_class=HTMLResponse)
+async def index(request: Request):
     # Check if this is the first request since app start
     if not hasattr(app, '_initial_scan_done'):
         # Use cached data on first request unless full refresh was requested
@@ -467,27 +487,29 @@ def index():
     # Do incremental update for subsequent requests
     update_state_log_incremental()
     
-    
     backend_names = sorted(set(exp['quantum_computer_backend'] for exp in _EXPERIMENT_CACHE['data']))
-    return render_template('backend_selection.html', backend_names=backend_names)
+    return templates.TemplateResponse(
+        "backend_selection.html",
+        {"request": request, "backend_names": backend_names}
+    )
 
-@app.route('/backend/<backend_name>')
-def backend_view(backend_name):
-    
-    
-    
-    page = request.args.get('page', 1, type=int)
-    search_term = request.args.get('search', '').lower()
-    date_from = request.args.get('date_from', '')
-    date_to = request.args.get('date_to', '')
+@app.get("/backend/{backend_name}", response_class=HTMLResponse)
+async def backend_view(
+    request: Request,
+    backend_name: str,
+    page: int = Query(1, ge=1),
+    search: str = Query(""),
+    date_from: str = Query(""),
+    date_to: str = Query("")
+):
     per_page = 200  # Number of experiments per page
     
     update_experiment_data()
     backend_experiments = [exp for exp in _EXPERIMENT_CACHE['data'] if exp['quantum_computer_backend'] == backend_name]
     
     # Apply filters
-    if search_term:
-        backend_experiments = [exp for exp in backend_experiments if search_term in exp['folder'].lower()]
+    if search:
+        backend_experiments = [exp for exp in backend_experiments if search.lower() in exp['folder'].lower()]
     
     if date_from:
         date_from = datetime.strptime(date_from, '%Y-%m-%d').date()
@@ -506,37 +528,37 @@ def backend_view(backend_name):
     # Get experiments for current page
     paginated_experiments = backend_experiments[start_idx:end_idx]
     
-    return render_template('index.html', 
-                         experiments=paginated_experiments,
-                         backend_name=backend_name,
-                         LAB_DATA_PATH=LAB_DATA_PATH,
-                         current_page=page,
-                         total_pages=total_pages,
-                         total_experiments=total_experiments,
-                         search_term=search_term,
-                         date_from=date_from,
-                         date_to=date_to)
+    return templates.TemplateResponse(
+        "index.html",
+        {
+            "request": request,
+            "experiments": paginated_experiments,
+            "backend_name": backend_name,
+            "LAB_DATA_PATH": LAB_DATA_PATH,
+            "current_page": page,
+            "total_pages": total_pages,
+            "total_experiments": total_experiments,
+            "search_term": search,
+            "date_from": date_from,
+            "date_to": date_to
+        }
+    )
 
-@app.route('/state_visualization')
-def state_visualization():
-    # Get all available backend names
-    
+@app.get("/state_visualization", response_class=HTMLResponse)
+async def state_visualization(request: Request):
     update_experiment_data()
     backend_names = sorted(set(exp['quantum_computer_backend'] for exp in _EXPERIMENT_CACHE['data']))
     
-    return render_template('state_visualization.html',
-                         backend_names=backend_names)
+    return templates.TemplateResponse(
+        "state_visualization.html",
+        {"request": request, "backend_names": backend_names}
+    )
 
-@app.route('/api/state_data/<backend_name>')
-def get_state_data_api(backend_name):
-    
-    
-    
-    key = request.args.get('key')
-    
-    if not key:
-        return jsonify({"error": "No key specified"})
-    
+@app.get("/api/state_data/{backend_name}", response_model=StateDataResponse)
+async def get_state_data_api(
+    backend_name: str,
+    key: str = Query(..., description="The state key to get data for")
+):
     try:
         # Get all experiments for this backend
         backend_experiments = [exp for exp in _EXPERIMENT_CACHE['data'] if exp['quantum_computer_backend'] == backend_name]
@@ -551,9 +573,16 @@ def get_state_data_api(backend_name):
                     if len(parts) == 2:
                         try:
                             new_value = parts[1]
-                            # For confusion matrix, keep the string representation
+                            # For confusion matrix, extract 00 and 11 values
                             if key.endswith('.confusion_matrix'):
-                                changes.append((exp['timestamp'], new_value))
+                                # Parse the matrix string
+                                new_value = json.loads(new_value)            
+                                # Extract 00 and 11 values
+                                value_00 = float(new_value[0][0])
+                                value_11 = float(new_value[1][1])
+                                # Add both values with the same timestamp
+                                changes.append((exp['timestamp'], value_00))
+                                changes.append((exp['timestamp'], value_11))
                             else:
                                 # For other values, convert to float
                                 new_value = float(new_value)
@@ -562,11 +591,11 @@ def get_state_data_api(backend_name):
                             continue
         
         if not changes:
-            return jsonify({
-                "timestamps": [],
-                "values": [],
-                "error": "No data available for the specified parameters"
-            })
+            return StateDataResponse(
+                timestamps=[],
+                values=[],
+                error="No data available for the specified parameters"
+            )
         
         # Sort changes by timestamp
         changes.sort(key=lambda x: x[0])
@@ -575,26 +604,26 @@ def get_state_data_api(backend_name):
         # Convert timestamps to ISO format
         timestamps = [datetime.fromtimestamp(ts).isoformat() for ts in timestamps]
         
-        return jsonify({
-            "timestamps": timestamps,
-            "values": list(values),
-            "error": None
-        })
+        return StateDataResponse(
+            timestamps=timestamps,
+            values=list(values),
+            error=None
+        )
         
     except Exception as e:
         print(f"Error in get_state_data_api: {str(e)}")
-        return jsonify({
-            "timestamps": [],
-            "values": [],
-            "error": f"Error processing data: {str(e)}"
-        })
+        return StateDataResponse(
+            timestamps=[],
+            values=[],
+            error=f"Error processing data: {str(e)}"
+        )
 
-@app.route('/api/filter_state_keys/<backend_name>')
-def filter_state_keys(backend_name):
-    
-    
-    
-    filter_text = request.args.get('filter', '').lower()
+@app.get("/api/filter_state_keys/{backend_name}", response_model=StateKeysResponse)
+async def filter_state_keys(
+    backend_name: str,
+    filter: str = Query("", description="Filter text for state keys")
+):
+    filter_text = filter.lower()
     
     # Get all experiments for this backend
     backend_experiments = [exp for exp in _EXPERIMENT_CACHE['data'] if exp['quantum_computer_backend'] == backend_name]
@@ -609,17 +638,19 @@ def filter_state_keys(backend_name):
                     if not filter_text or filter_text in key.lower():
                         keys.add(key)
     
-    return jsonify(sorted(list(keys)))
+    return StateKeysResponse(keys=sorted(list(keys)))
 
-@app.route('/plot/<path:plot_path>')
-def serve_plot(plot_path):
+@app.get("/plot/{plot_path:path}")
+async def serve_plot(plot_path: str):
     # Ensure the path is within the LAB_DATA_PATH
     full_path = os.path.join(LAB_DATA_PATH, plot_path)
     if not os.path.exists(full_path) or not full_path.startswith(LAB_DATA_PATH):
-        abort(404)
-    return send_file(full_path)
+        raise HTTPException(status_code=404, detail="Plot not found")
+    return FileResponse(full_path)
 
 if __name__ == '__main__':
+    import uvicorn
+    
     arg_parser = argparse.ArgumentParser(description='Run the Lab Notebook application')
     arg_parser.add_argument('--lab-path', type=str, default=DEFAULT_LAB_DATA_PATH,
                       help=f'Path to lab data directory (default: {DEFAULT_LAB_DATA_PATH})')
@@ -634,9 +665,8 @@ if __name__ == '__main__':
         app._force_full_refresh = args.full_refresh
         if args.full_refresh:
             print("Performing full refresh of experiment cache")
-        # # Update state log when starting the application
-        # update_state_log_incremental()
-        app.run(debug=True) 
+        
+        uvicorn.run(app, host="0.0.0.0", port=8000)
     except ValueError as e:
         print(f"Error: {e}")
         exit(1) 

@@ -7,6 +7,7 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-select@1.14.0-beta3/dist/css/bootstrap-select.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', path='style.css') }}" rel="stylesheet">
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
     <style>
@@ -31,20 +32,19 @@
             width: 100%;
             height: 600px;
         }
-        .bootstrap-select .dropdown-toggle {
-            background-color: #fff;
-            border: 1px solid #ced4da;
-            border-radius: 0.25rem;
+        .state-param-select {
+            width: 100%;
         }
-        .bootstrap-select .dropdown-menu {
+        .state-param-select .dropdown-menu {
             max-height: 300px;
+            overflow-y: auto;
         }
     </style>
 </head>
 <body class="bg-light">
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
         <div class="container">
-            <a class="navbar-brand" href="{{ url_for('index') }}">
+            <a class="navbar-brand" href="/">
                 <i class="fas fa-flask me-2"></i>Lab Notebook
             </a>
         </div>
@@ -55,7 +55,7 @@
             <div class="col-12">
                 <div class="d-flex justify-content-between align-items-center mb-4">
                     <div>
-                        <a href="{{ url_for('index') }}" class="btn btn-outline-secondary back-button">
+                        <a href="/" class="btn btn-outline-secondary back-button">
                             <i class="fas fa-arrow-left me-2"></i>Back to Backend Selection
                         </a>
                         <h2 class="d-inline-block ms-3">State Parameter Visualization</h2>
@@ -80,14 +80,10 @@
                     <input type="text" class="form-control" id="searchInput" placeholder="Type to filter parameters...">
                 </div>
                 <div class="col-md-4">
-                    <label for="stateKey" class="form-label">State Parameter</label>
-                    <div class="dropdown">
-                        <button class="form-select" type="button" id="stateKeyDropdown" data-bs-toggle="dropdown" aria-expanded="false" disabled>
-                            Select a parameter...
-                        </button>
-                        <ul class="dropdown-menu w-100" id="stateKeyList" style="max-height: 300px; overflow-y: auto;">
-                        </ul>
-                    </div>
+                    <label for="stateKeySelect" class="form-label">State Parameter</label>
+                    <select class="form-select state-param-select" id="stateKeySelect" disabled>
+                        <option value="">Select a parameter...</option>
+                    </select>
                 </div>
             </div>
             <div class="row mt-3">
@@ -110,48 +106,34 @@
     <script>
         const backendSelect = document.getElementById('backendSelect');
         const searchInput = document.getElementById('searchInput');
-        const stateKeyDropdown = document.getElementById('stateKeyDropdown');
-        const stateKeyList = document.getElementById('stateKeyList');
+        const stateKeySelect = document.getElementById('stateKeySelect');
         const plotDiv = document.getElementById('statePlot');
         const selectedParametersDiv = document.getElementById('selectedParameters');
         const selectedParametersList = document.getElementById('selectedParametersList');
         let selectedParams = new Set();
 
         function updateStateKeyOptions(backend, filterText = '') {
-            stateKeyList.innerHTML = '';
-            stateKeyDropdown.disabled = true;
+            stateKeySelect.innerHTML = '<option value="">Select a parameter...</option>';
+            stateKeySelect.disabled = true;
             
             if (!backend) return;
             
             fetch(`/api/filter_state_keys/${encodeURIComponent(backend)}?filter=${encodeURIComponent(filterText)}`)
                 .then(response => response.json())
-                .then(keys => {
-                    keys.forEach(key => {
-                        const li = document.createElement('li');
-                        li.innerHTML = `<a class="dropdown-item" href="#">${key}</a>`;
-                        li.addEventListener('click', (e) => {
-                            e.preventDefault();
-                            addParameter(key);
-                        });
-                        stateKeyList.appendChild(li);
+                .then(data => {
+                    data.keys.forEach(key => {
+                        const option = document.createElement('option');
+                        option.value = key;
+                        option.textContent = key;
+                        stateKeySelect.appendChild(option);
                     });
-                    stateKeyDropdown.disabled = false;
+                    stateKeySelect.disabled = false;
                 })
                 .catch(error => {
                     console.error('Error fetching state keys:', error);
-                    stateKeyDropdown.disabled = false;
+                    stateKeySelect.disabled = false;
                 });
         }
-
-        // Prevent dropdown from closing when clicking inside
-        stateKeyList.addEventListener('click', (e) => {
-            e.stopPropagation();
-        });
-
-        // Keep dropdown open after selection
-        stateKeyList.addEventListener('change', (e) => {
-            e.stopPropagation();
-        });
 
         function addParameter(key) {
             if (selectedParams.has(key)) return;
@@ -190,10 +172,7 @@
             // Fetch data for all selected parameters
             const promises = Array.from(selectedParams).map(key =>
                 fetch(`/api/state_data/${encodeURIComponent(backend)}?key=${encodeURIComponent(key)}`)
-                    .then(response => {
-                        console.log(`API Response for ${key}:`, response);
-                        return response.json();
-                    })
+                    .then(response => response.json())
                     .then(data => {
                         console.log(`Data for ${key}:`, data);
                         return data;
@@ -230,78 +209,52 @@
                             const values00 = [];
                             const values11 = [];
                             
-                            data.values.forEach((value, i) => {
-                                try {
-                                    console.log('Processing value:', value);
-                                    // Parse the string representation of the 2x2 matrix
-                                    // Remove any whitespace and parse the string as JSON
-                                    const matrix = JSON.parse(value.replace(/\s+/g, ''));
-                                    console.log('Parsed matrix:', matrix);
-                                    
-                                    if (Array.isArray(matrix) && matrix.length === 2 && matrix[0].length === 2) {
-                                        timestamps.push(data.timestamps[i]);
-                                        values00.push(matrix[0][0]);
-                                        values11.push(matrix[1][1]);
-                                    } else {
-                                        console.error('Invalid matrix format:', matrix);
-                                    }
-                                } catch (e) {
-                                    console.error('Error parsing confusion matrix:', e);
-                                    console.error('Problematic value:', value);
+                            // Since the backend sends 00 and 11 values in pairs,
+                            // we need to separate them
+                            for (let i = 0; i < data.values.length; i += 2) {
+                                if (i + 1 < data.values.length) {
+                                    timestamps.push(data.timestamps[i]);
+                                    values00.push(data.values[i]);
+                                    values11.push(data.values[i + 1]);
                                 }
-                            });
+                            }
 
-                            // Add 00 fidelity trace
-                            traces.push({
-                                x: timestamps,
-                                y: values00,
-                                type: 'scatter',
-                                mode: 'lines+markers',
-                                name: `${key} (00 fidelity)`,
-                                line: {
-                                    width: 2
-                                },
-                                marker: {
-                                    size: 6
-                                }
-                            });
+                            // Only add traces if we have data
+                            if (timestamps.length > 0) {
+                                traces.push({
+                                    x: timestamps,
+                                    y: values00,
+                                    type: 'scatter',
+                                    mode: 'lines+markers',
+                                    name: `${key} (00 fidelity)`,
+                                    line: { width: 2 },
+                                    marker: { size: 6 }
+                                });
 
-                            // Add 11 fidelity trace
-                            traces.push({
-                                x: timestamps,
-                                y: values11,
-                                type: 'scatter',
-                                mode: 'lines+markers',
-                                name: `${key} (11 fidelity)`,
-                                line: {
-                                    width: 2
-                                },
-                                marker: {
-                                    size: 6
-                                }
-                            });
-
-                            console.log('Generated traces for confusion matrix:', traces);
+                                traces.push({
+                                    x: timestamps,
+                                    y: values11,
+                                    type: 'scatter',
+                                    mode: 'lines+markers',
+                                    name: `${key} (11 fidelity)`,
+                                    line: { width: 2 },
+                                    marker: { size: 6 }
+                                });
+                            }
                             return traces;
                         } else {
-                            // Handle regular parameters
                             return {
                                 x: data.timestamps,
                                 y: data.values,
                                 type: 'scatter',
                                 mode: 'lines+markers',
                                 name: key,
-                                line: {
-                                    width: 2
-                                },
-                                marker: {
-                                    size: 6
-                                }
+                                line: { width: 2 },
+                                marker: { size: 6 }
                             };
                         }
                     }).filter(trace => trace !== null);
 
-                    // Flatten the traces array in case of confusion matrices
                     const flattenedTraces = traces.reduce((acc, trace) => {
                         if (Array.isArray(trace)) {
                             return acc.concat(trace);
@@ -317,30 +270,22 @@
                     const layout = {
                         title: 'State Parameters Over Time',
                         xaxis: {
-                            title: {
-                                text: 'Time',
-                                standoff: 15
-                            },
+                            title: { text: 'Time', standoff: 15 },
                             tickformat: '%Y-%m-%d %H:%M:%S',
                             tickangle: 45,
-                            tickfont: {
-                                size: 10
-                            },
+                            tickfont: { size: 10 },
                             automargin: true
                         },
                         yaxis: {
-                            title: {
-                                text: 'Value',
-                                standoff: 15
-                            }
+                            title: { text: 'Value', standoff: 15 }
                         },
                         showlegend: true,
                         height: 600,
                         margin: {
-                            l: 80,  // Left margin
-                            r: 20,  // Right margin
-                            t: 50,  // Top margin
-                            b: 120  // Bottom margin
+                            l: 80,
+                            r: 20,
+                            t: 50,
+                            b: 120
                         },
                         legend: {
                             yanchor: "top",
@@ -370,6 +315,14 @@
             searchTimeout = setTimeout(() => {
                 updateStateKeyOptions(backendSelect.value, e.target.value);
             }, 300);
+        });
+
+        // Handle state parameter selection
+        stateKeySelect.addEventListener('change', (e) => {
+            if (e.target.value) {
+                addParameter(e.target.value);
+                e.target.value = ''; // Reset selection
+            }
         });
 
         backendSelect.addEventListener('change', () => {

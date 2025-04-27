@@ -1,0 +1,19 @@
+/* Custom styles for Lab Notebook app */
+
+/* Add any custom styles here */
+body {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.container {
+    flex: 1;
+}
+
+footer {
+    margin-top: auto;
+    padding: 1rem 0;
+    background-color: #f8f9fa;
+    border-top: 1px solid #dee2e6;
+} 
