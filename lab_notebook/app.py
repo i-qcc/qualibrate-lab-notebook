@@ -349,112 +349,104 @@ def update_experiment_data(full_refresh=False):
     
     # First, collect all experiments with their metadata
     skipped_count = 0
+        
+    # Get all date folders and sort them by creation time
+    date_folders = []
+    for date_folder_name in os.listdir(LAB_DATA_PATH): # TODO: make this scanning more robust
+        if os.path.isdir(os.path.join(LAB_DATA_PATH, date_folder_name)):
+            # Get creation time of the date folder in Unix timestamp
+            creation_time = int(os.path.getctime(os.path.join(LAB_DATA_PATH, date_folder_name)))
+            date_folders.append((date_folder_name, creation_time))
     
-    # Get all folders in the lab data path
-    all_folders = sorted([f for f in os.listdir(LAB_DATA_PATH) 
-                         if os.path.isdir(os.path.join(LAB_DATA_PATH, f))])
+    # Sort date folders by creation time in descending order (newest first)
+    date_folders.sort(key=lambda x: x[1], reverse=True) # TODO : consider using a different way of sorting
     
-    for folder in all_folders:
-        folder_path = os.path.join(LAB_DATA_PATH, folder)
+    for date_folder_name, date_folder_creation_time in date_folders:
+        # Skip older date folders if we have cached data
+        if latest_timestamp is not None:
+            if date_folder_creation_time < latest_timestamp:
+                break
         
-        # Get all date folders and sort them by creation time
-        date_folders = []
-        for date_folder_name in os.listdir(folder_path): # TODO: make this scanning more robust
-            if os.path.isdir(os.path.join(folder_path, date_folder_name)):
-                # Get creation time of the date folder in Unix timestamp
-                creation_time = int(os.path.getctime(os.path.join(folder_path, date_folder_name)))
-                date_folders.append((date_folder_name, creation_time))
+        date_path = os.path.join(LAB_DATA_PATH, date_folder_name)
         
-        # Sort date folders by creation time in descending order (newest first)
-        date_folders.sort(key=lambda x: x[1], reverse=True) # TODO : consider using a different way of sorting
+        # Get all experiment folders for this date
+        exp_folders = sorted([f for f in os.listdir(date_path) 
+                            if os.path.isdir(os.path.join(date_path, f))])
         
-        for date_folder_name, date_folder_creation_time in date_folders:
-            # Skip older date folders if we have cached data
-            if latest_timestamp is not None:
-                if date_folder_creation_time < latest_timestamp:
-                    break
+        for exp_folder in exp_folders:
+            exp_path = os.path.join(date_path, exp_folder)
             
-            date_path = os.path.join(folder_path, date_folder_name)
+            # Skip if we already have this experiment in cache
+            if any(exp['path'] == exp_path for exp in experiments):
+                continue
             
-            # Get all experiment folders for this date
-            exp_folders = sorted([f for f in os.listdir(date_path) 
-                                if os.path.isdir(os.path.join(date_path, f))])
+            # Get all PNG files
+            plot_files = []
+            for f in os.listdir(exp_path):
+                if f.endswith('.png'):
+                    plot_files.append(os.path.join(exp_path, f))
             
-            for exp_folder in exp_folders:
-                exp_path = os.path.join(date_path, exp_folder)
-                
-                # Skip if we already have this experiment in cache
-                if any(exp['path'] == exp_path for exp in experiments):
-                    continue
-                
-                # Get all PNG files
-                plot_files = []
-                for f in os.listdir(exp_path):
-                    if f.endswith('.png'):
-                        plot_files.append(os.path.join(exp_path, f))
-                
-                # Only skip if there are no PNG files
-                if not plot_files:
-                    skipped_count += 1
-                    continue
-                
-                # Sort plot files to put fidelity plots first if they exist
-                plot_files.sort(key=lambda x: (
-                    not ('fidelity' in os.path.basename(x).lower()),
-                    x
-                ))
-                
-                # Get experiment metadata
-                node_file = os.path.join(exp_path, 'node.json')
-                wiring_file = os.path.join(exp_path, 'quam_state', 'wiring.json')
-                state_file = os.path.join(exp_path, 'quam_state', 'state.json')
-                
-                # Initialize experiment data with default backend
-                experiment = {
-                    'folder': exp_folder,
-                    'path': exp_path,
-                    'plot_files': plot_files,
-                    'lab_folder': folder,
-                    'state_changes': [],
-                    'quantum_computer_backend': 'unspecified_backend_name',  # Default value
-                    'state_file': state_file,  # Store state file path for later use
-                    'wiring_file': wiring_file
-                }
-                
-                # Load metadata and extract timestamp
-                if not os.path.exists(node_file):
-                    skipped_count += 1
-                    continue
-                
-                try:
-                    with open(node_file, 'r') as f:
-                        node_data = json.load(f)
-                        if 'created_at' not in node_data:
-                            skipped_count += 1
-                            continue
-                            
-                        # Parse the timestamp in the format "2025-03-18T12:42:29+02:00"
-                        created_at = parser.parse(node_data['created_at'])
-                        experiment['date'] = created_at.isoformat()
-                        experiment['timestamp'] = int(created_at.timestamp())
+            # Only skip if there are no PNG files
+            if not plot_files:
+                skipped_count += 1
+                continue
+            
+            # Sort plot files to put fidelity plots first if they exist
+            plot_files.sort(key=lambda x: (
+                not ('fidelity' in os.path.basename(x).lower()),
+                x
+            ))
+            
+            # Get experiment metadata
+            node_file = os.path.join(exp_path, 'node.json')
+            wiring_file = os.path.join(exp_path, 'quam_state', 'wiring.json')
+            state_file = os.path.join(exp_path, 'quam_state', 'state.json')
+            
+            # Initialize experiment data with default backend
+            experiment = {
+                'folder': exp_folder,
+                'path': exp_path,
+                'plot_files': plot_files,
+                'state_changes': [],
+                'quantum_computer_backend': 'unspecified_backend_name',  # Default value
+                'state_file': state_file,  # Store state file path for later use
+                'wiring_file': wiring_file
+            }
+            
+            # Load metadata and extract timestamp
+            if not os.path.exists(node_file):
+                skipped_count += 1
+                continue
+            
+            try:
+                with open(node_file, 'r') as f:
+                    node_data = json.load(f)
+                    if 'created_at' not in node_data:
+                        skipped_count += 1
+                        continue
                         
-                        # Get state changes from patches
-                        if 'patches' in node_data:
-                            experiment['state_changes'] = get_state_changes(node_data)
-                except (json.JSONDecodeError, ValueError, TypeError):
-                    skipped_count += 1
-                    continue
-                
-                # Get quantum computer backend
-                if os.path.exists(wiring_file):
-                    try:
-                        with open(wiring_file, 'r') as f:
-                            wiring_data = json.load(f)
-                            experiment['quantum_computer_backend'] = wiring_data.get('network', {}).get('quantum_computer_backend', 'unspecified_backend_name')
-                    except (json.JSONDecodeError, KeyError, IOError):
-                        pass
-                
-                experiments.append(experiment)
+                    # Parse the timestamp in the format "2025-03-18T12:42:29+02:00"
+                    created_at = parser.parse(node_data['created_at'])
+                    experiment['date'] = created_at.isoformat()
+                    experiment['timestamp'] = int(created_at.timestamp())
+                    
+                    # Get state changes from patches
+                    if 'patches' in node_data:
+                        experiment['state_changes'] = get_state_changes(node_data)
+            except (json.JSONDecodeError, ValueError, TypeError):
+                skipped_count += 1
+                continue
+            
+            # Get quantum computer backend
+            if os.path.exists(wiring_file):
+                try:
+                    with open(wiring_file, 'r') as f:
+                        wiring_data = json.load(f)
+                        experiment['quantum_computer_backend'] = wiring_data.get('network', {}).get('quantum_computer_backend', 'unspecified_backend_name')
+                except (json.JSONDecodeError, KeyError, IOError):
+                    pass
+            
+            experiments.append(experiment)
     
     if skipped_count > 0:
         print(f"Warning: {skipped_count} experiments were skipped due to missing or invalid data")

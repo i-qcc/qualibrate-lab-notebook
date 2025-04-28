@@ -2,10 +2,10 @@ import os
 import hashlib
 
 # Default configuration
-DEFAULT_LAB_DATA_PATH = "/home/omrieoqm/.from_cloud_storage/user_storage" # "/home/omrieoqm/.qualibrate/user_storage"
+DEFAULT_LAB_DATA_PATH = os.path.expanduser("~/.qualibrate/user_storage/QC1") #  os.path.expanduser("~/.from_cloud_storage/user_storage/QC1") 
 LAB_DATA_PATH = DEFAULT_LAB_DATA_PATH
-STATE_LOGS_DIR = os.path.expanduser("~/.lab_notebook/state_logs")
-CACHE_DIR = os.path.expanduser("~/.lab_notebook/experiment_cache")
+STATE_LOGS_DIR = os.path.expanduser("~/.qualibrate-lab-notebook/state_logs")
+CACHE_DIR = os.path.expanduser("~/.qualibrate-lab-notebook/experiment_cache")
 os.makedirs(CACHE_DIR, exist_ok=True)
 
 def get_path_id(lab_path):

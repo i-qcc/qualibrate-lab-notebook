@@ -184,7 +184,7 @@
                                 {% for plot_file in exp.plot_files %}
                                 <div class="carousel-item {% if loop.first %}active{% endif %}">
                                     <div class="plot-container">
-                                        <img src="/plot/{{ plot_file.replace(LAB_DATA_PATH, '').lstrip('/') }}" 
+                                        <img src="/plot/{{ plot_file.replace(LAB_DATA_PATH, '').lstrip('/') | urlencode }}" 
                                              alt="Experiment plot" 
                                              class="card-img-top"
                                              onerror="this.onerror=null; this.parentElement.innerHTML='<div class=\'plot-error\'><i class=\'fas fa-exclamation-circle fa-2x\'></i><br>Plot not found</div>';">

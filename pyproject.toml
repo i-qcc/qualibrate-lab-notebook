@@ -2,6 +2,15 @@
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.poetry]
+name = "qualibrate-lab-notebook"
+version = "0.1.0"
+description = "A web-based application for visualizing and analyzing Qualibrate experiment data"
+authors = ["Omrie Ovdat <omrie.ovdat@quamtum-machines.co>"]
+packages = [
+    { include = "lab_notebook" }
+]
+
 [project]
 name = "qualibrate-lab-notebook"
 version = "0.1.0"
@@ -57,5 +66,3 @@ qualibrate-lab-notebook = "lab_notebook.cli:main"
 
 [project.config]
 default_lab_path = "~/.qualibrate/user_storage"
-state_logs_dir = "~/.qualibrate-lab-notebook/state_logs"
-experiment_cache_dir = "~/.qualibrate-lab-notebook/experiment_cache" 
