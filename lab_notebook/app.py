@@ -21,6 +21,8 @@ from lab_notebook.config import (
     get_cache_file_path
 )
 from lab_notebook.log_utils import compare_dicts, load_json
+import signal
+import sys
 
 app = FastAPI(title="Lab Notebook API")
 
@@ -639,6 +641,13 @@ async def serve_plot(plot_path: str):
     if not os.path.exists(full_path) or not full_path.startswith(LAB_DATA_PATH):
         raise HTTPException(status_code=404, detail="Plot not found")
     return FileResponse(full_path)
+
+@app.post("/shutdown")
+async def shutdown():
+    """Gracefully shut down the server"""
+    print("Shutting down server...")
+    os.kill(os.getpid(), signal.SIGTERM)
+    return {"message": "Server shutting down..."}
 
 if __name__ == '__main__':
     import uvicorn

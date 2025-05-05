@@ -1,6 +1,28 @@
 import argparse
 import sys
+import socket
 from lab_notebook.app import app, set_lab_data_path
+
+def is_port_in_use(port):
+    """Check if a port is already in use"""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        sock.bind(('0.0.0.0', port))
+        sock.close()
+        return False
+    except (socket.error, OSError):
+        sock.close()
+        return True
+
+def find_available_port(start_port, max_attempts=10):
+    """Find an available port starting from start_port"""
+    port = start_port
+    for _ in range(max_attempts):
+        if not is_port_in_use(port):
+            return port
+        port += 1
+    raise RuntimeError(f"Could not find an available port after {max_attempts} attempts")
 
 def main():
     parser = argparse.ArgumentParser(description='Lab Notebook - A web-based application for viewing and organizing laboratory experiment plots')
@@ -26,8 +48,20 @@ def main():
                 print("Performing full refresh of experiment cache")
             
             import uvicorn
-            print(f"Starting Lab Notebook server on {args.host}:{args.port}")
-            uvicorn.run(app, host=args.host, port=args.port)
+            from uvicorn.config import Config
+            from uvicorn.main import Server
+            
+            port = args.port
+            if is_port_in_use(port):
+                print(f"Port {port} is already in use. Looking for an available port...")
+                port = find_available_port(port)
+                print(f"Found available port: {port}")
+            
+            config = Config(app, host=args.host, port=port, reload=False)
+            server = Server(config=config)
+            print(f"Starting Lab Notebook server on {args.host}:{port}")
+            server.run()
+            
         except ValueError as e:
             print(f"Error: {e}")
             sys.exit(1)
