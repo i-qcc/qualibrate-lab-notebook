@@ -636,6 +636,9 @@ async def filter_state_keys(
 
 @app.get("/plot/{plot_path:path}")
 async def serve_plot(plot_path: str):
+    # Replace backslashes with forward slashes and remove any leading/trailing slashes
+    plot_path = plot_path.replace('\\', '/').strip('/')
+    
     # Ensure the path is within the LAB_DATA_PATH
     full_path = os.path.join(LAB_DATA_PATH, plot_path)
     if not os.path.exists(full_path) or not full_path.startswith(LAB_DATA_PATH):
@@ -667,7 +670,11 @@ if __name__ == '__main__':
         if args.full_refresh:
             print("Performing full refresh of experiment cache")
         
-        uvicorn.run(app, host="0.0.0.0", port=8000)
+        print("\nStarting Lab Notebook server...")
+        print("Access the application at: http://localhost:8000")
+        print("Press Ctrl+C to stop the server\n")
+        
+        uvicorn.run(app, host="0.0.0.0", port=8000, log_level="error")
     except ValueError as e:
         print(f"Error: {e}")
         exit(1) 
