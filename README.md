@@ -58,12 +58,11 @@ qualibrate-lab-notebook start --full-refresh
 
 ## Requirements
 
-- Python 3.11 or 3.12
+- Python 3.9 or higher
 - FastAPI
 - Uvicorn
 - Matplotlib
-- NumPy
-- H5Py
+- Jinja2
 
 ## License
 
