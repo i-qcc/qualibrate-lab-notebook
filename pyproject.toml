@@ -16,7 +16,7 @@ name = "qualibrate-lab-notebook"
 version = "0.1.0"
 description = "A web-based application for visualizing and analyzing Qualibrate experiment data"
 readme = "README.md"
-requires-python = ">=3.11,<3.13"
+requires-python = ">=3.9,<3.13"
 license = "BSD-3-Clause"
 authors = [
     { name = "Omrie Ovdat", email = "omrie.ovdat@quamtum-machines.co" }
@@ -25,7 +25,6 @@ dependencies = [
     "fastapi>=0.109.0",
     "uvicorn>=0.27.0",
     "python-dateutil>=2.8.2",
-    "numpy>=1.26.4",
     "matplotlib>=3.8.3",
     "h5py>=3.10.0",
     "jinja2>=3.1.0",
