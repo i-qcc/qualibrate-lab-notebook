@@ -57,9 +57,11 @@ def main():
                 port = find_available_port(port)
                 print(f"Found available port: {port}")
             
-            config = Config(app, host=args.host, port=port, reload=False)
+            config = Config(app, host=args.host, port=port, reload=False, log_level="error")
             server = Server(config=config)
-            print(f"Starting Lab Notebook server on {args.host}:{port}")
+            print("\nStarting Lab Notebook server...")
+            print(f"Access the application at: http://localhost:{port}")
+            print("Press Ctrl+C to stop the server\n")
             server.run()
             
         except ValueError as e:

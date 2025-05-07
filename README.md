@@ -21,7 +21,7 @@ pip install qualibrate-lab-notebook
 Start the Qualibrate Lab Notebook server:
 
 ```bash
-qualibrate-lab-notebook start --lab-path /path/to/your/qualibrate/data
+qualibrate-lab-notebook start --lab-path /path/to/your/qualibrate/data (for example : "~/.qualibrate/user_storage/QC1")
 ```
 
 ### Command Line Options
@@ -40,7 +40,7 @@ qualibrate-lab-notebook start
 # Start with custom lab path
 qualibrate-lab-notebook start --lab-path /path/to/qualibrate_data/project/data (for example : "~/.qualibrate/user_storage/QC1")
 
-# Start with custom host and port
+# Start with custom host and/or port
 qualibrate-lab-notebook start --host 127.0.0.1 --port 8080
 
 # Start with full refresh
