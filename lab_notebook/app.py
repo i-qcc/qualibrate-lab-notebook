@@ -12,6 +12,7 @@ import time
 import hashlib
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
+import importlib.resources
 from lab_notebook.config import (
     DEFAULT_LAB_DATA_PATH,
     LAB_DATA_PATH,
@@ -26,11 +27,13 @@ import sys
 
 app = FastAPI(title="Lab Notebook API")
 
-# Mount static files
-app.mount("/static", StaticFiles(directory="lab_notebook/static"), name="static")
+# Mount static files using package resources
+static_dir = importlib.resources.files("lab_notebook") / "static"
+app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
 # Templates
-templates = Jinja2Templates(directory="lab_notebook/templates")
+templates_dir = importlib.resources.files("lab_notebook") / "templates"
+templates = Jinja2Templates(directory=str(templates_dir))
 
 # Cache for experiment data
 _EXPERIMENT_CACHE = {
