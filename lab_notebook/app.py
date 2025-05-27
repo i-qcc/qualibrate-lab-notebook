@@ -108,16 +108,11 @@ def get_latest_logged_timestamp():
 
 
 def log_state_changes(from_timestamp: int, log_file_path: str):
-
-    
-    
     all_changes = []
-
     is_state_changes_logged = False
     prev_state = None
+    skipped_experiments = 0
     
-    num_experiments = len(_EXPERIMENT_CACHE['data'])
-
     for i, exp in enumerate(_EXPERIMENT_CACHE['data']):
         if exp["timestamp"] < from_timestamp:
             break # timestamp is sorted in _EXPERIMENT_CACHE['data']
@@ -126,8 +121,25 @@ def log_state_changes(from_timestamp: int, log_file_path: str):
         wiring_path = exp["wiring_file"]
         timestamp = exp["timestamp"]  # Already a Unix timestamp
 
-        curr_state = load_json(state_path)
-        curr_wiring = load_json(wiring_path)
+        # Skip if state file doesn't exist
+        if not os.path.exists(state_path):
+            print(f"Warning: State file not found for experiment {exp['folder']} at {state_path}")
+            skipped_experiments += 1
+            continue
+
+        # Skip if wiring file doesn't exist
+        if not os.path.exists(wiring_path):
+            print(f"Warning: Wiring file not found for experiment {exp['folder']} at {wiring_path}")
+            skipped_experiments += 1
+            continue
+
+        try:
+            curr_state = load_json(state_path)
+            curr_wiring = load_json(wiring_path)
+        except Exception as e:
+            print(f"Warning: Failed to load state/wiring files for experiment {exp['folder']}: {str(e)}")
+            skipped_experiments += 1
+            continue
 
         backend = curr_wiring["network"].get("quantum_computer_backend", "unspecified_backend")
 
@@ -149,6 +161,9 @@ def log_state_changes(from_timestamp: int, log_file_path: str):
     with open(log_file_path, 'a') as f:  # Open the file in append mode
         f.write("\n".join(all_changes) + "\n")
     print(f"Changes appended to {log_file_path}")
+    
+    if skipped_experiments > 0:
+        print(f"Warning: {skipped_experiments} experiments were skipped due to missing or invalid state/wiring files")
     
     if is_state_changes_logged:
         save_experiment_cache()
