@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [tool.poetry]
 name = "qualibrate-lab-notebook"
-version = "0.1.0"
+version = "0.1.1"
 description = "A web-based application for visualizing and analyzing Qualibrate experiment data"
 authors = ["Omrie Ovdat <omrie.ovdat@quamtum-machines.co>"]
 packages = [
